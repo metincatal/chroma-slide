@@ -21,6 +21,11 @@ export class Game {
   private animFrameId = 0;
   private lastTime = 0;
 
+  // Input queue - ardışık swipe desteği
+  private moveQueue: Direction[] = [];
+  private readonly MAX_QUEUE = 3;
+  private levelCompleting = false;
+
   constructor(canvas: HTMLCanvasElement, overlay: HTMLDivElement) {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
@@ -43,13 +48,17 @@ export class Game {
           this.startLevel(this.currentLevel.data.id);
         }
       },
+      // DEBUG: Hızlı level geçiş
+      onPrevLevel: () => {
+        if (this.currentLevel && this.currentLevel.data.id > 1) {
+          this.startLevel(this.currentLevel.data.id - 1);
+        }
+      },
       onNextLevel: () => {
         if (this.currentLevel) {
           const nextId = this.currentLevel.data.id + 1;
           if (nextId <= getTotalLevels()) {
             this.startLevel(nextId);
-          } else {
-            this.showScreen('levels');
           }
         }
       },
@@ -71,7 +80,7 @@ export class Game {
     this.input.setEnabled(screen === 'game');
     this.renderer.stopConfetti();
 
-    if (screen !== 'game' && screen !== 'complete') {
+    if (screen !== 'game') {
       this.currentLevel = null;
       this.ball = null;
     }
@@ -86,6 +95,8 @@ export class Game {
     this.currentLevel = new Level(levelData);
     this.ball = new Ball(levelData.startX, levelData.startY);
     this.moves = 0;
+    this.moveQueue = [];
+    this.levelCompleting = false;
 
     this.showScreen('game', {
       levelId,
@@ -96,9 +107,23 @@ export class Game {
 
   private handleSwipe(direction: Direction) {
     if (!this.currentLevel || !this.ball) return;
-    if (this.ball.animating) return;
+    if (this.levelCompleting) return;
 
     resumeAudio();
+
+    // Top hareket halindeyse kuyruğa ekle
+    if (this.ball.animating) {
+      if (this.moveQueue.length < this.MAX_QUEUE) {
+        this.moveQueue.push(direction);
+      }
+      return;
+    }
+
+    this.executeMove(direction);
+  }
+
+  private executeMove(direction: Direction) {
+    if (!this.currentLevel || !this.ball) return;
 
     const result = this.ball.calculateSlide(
       direction,
@@ -109,13 +134,18 @@ export class Game {
 
     if (!result) {
       playBump();
+      // Kuyrukta sonraki hamleyi dene
+      if (this.moveQueue.length > 0) {
+        const next = this.moveQueue.shift()!;
+        this.executeMove(next);
+      }
       return;
     }
 
     this.moves++;
     playSlide();
     this.ball.startSlide(result);
-    this.input.setEnabled(false);
+    this.screenManager.updateHUD(this.moves, this.currentLevel.getProgress());
   }
 
   private loop = (time: number) => {
@@ -139,44 +169,47 @@ export class Game {
       this.screenManager.updateHUD(this.moves, this.currentLevel.getProgress());
     }
 
-    // Animasyon bitti mi?
+    // Animasyon bitti
     if (!this.ball.animating && paintedTiles) {
-      // Tamamlanma kontrolü
       if (this.currentLevel.isComplete()) {
         this.onLevelComplete();
-      } else {
-        this.input.setEnabled(true);
+      } else if (this.moveQueue.length > 0) {
+        // Kuyruktan sonraki hamleyi çalıştır
+        const next = this.moveQueue.shift()!;
+        this.executeMove(next);
       }
     }
   }
 
   private render() {
     if (!this.currentLevel || !this.ball) return;
-    if (this.screen !== 'game' && this.screen !== 'complete') return;
+    if (this.screen !== 'game') return;
 
     this.renderer.render(this.currentLevel, this.ball);
   }
 
   private onLevelComplete() {
+    if (this.levelCompleting) return;
+    this.levelCompleting = true;
+    this.moveQueue = [];
+
     const level = this.currentLevel!;
     const stars = level.calculateStars(this.moves);
     const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
 
     saveProgress(level.data.id, stars, this.moves);
-
     playComplete();
     this.renderer.startConfetti(LEVEL_COLORS[colorIdx]);
 
-    // Kısa gecikme sonra tamamlanma ekranını göster
+    // Otomatik sonraki seviyeye geçiş (tamamlanma ekranı yok)
+    const nextId = level.data.id + 1;
     setTimeout(() => {
-      this.screen = 'complete';
-      this.screenManager.show('complete', {
-        levelId: level.data.id,
-        stars,
-        moves: this.moves,
-        targetMoves: level.data.targetMoves,
-        isLastLevel: level.data.id >= getTotalLevels(),
-      });
-    }, 800);
+      this.renderer.stopConfetti();
+      if (nextId <= getTotalLevels()) {
+        this.startLevel(nextId);
+      } else {
+        this.showScreen('levels');
+      }
+    }, 1200);
   }
 }

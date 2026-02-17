@@ -27,7 +27,6 @@ const OPPOSITE: Record<Direction, Direction> = {
   RIGHT: 'LEFT',
 };
 
-// Fisher-Yates shuffle
 function shuffle<T>(arr: T[], rng: () => number): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -37,120 +36,62 @@ function shuffle<T>(arr: T[], rng: () => number): T[] {
   return a;
 }
 
-// Slide simülasyonu: bir yönde duvara çarpana kadar kay
+// Slide simülasyonu
 function simulateSlide(
-  grid: number[],
-  w: number,
-  h: number,
-  sx: number,
-  sy: number,
-  dx: number,
-  dy: number
+  grid: number[], w: number, h: number,
+  sx: number, sy: number, dx: number, dy: number
 ): { x: number; y: number; dist: number } {
-  let cx = sx;
-  let cy = sy;
-  let dist = 0;
+  let cx = sx, cy = sy, dist = 0;
   while (true) {
-    const nx = cx + dx;
-    const ny = cy + dy;
+    const nx = cx + dx, ny = cy + dy;
     if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
     if (grid[ny * w + nx] === WALL) break;
-    cx = nx;
-    cy = ny;
-    dist++;
+    cx = nx; cy = ny; dist++;
   }
   return { x: cx, y: cy, dist };
 }
 
-// Koridor aç: başlangıç noktasından belirli yönde karoları PATH yap
-function carveCorridorFromPoint(
-  grid: number[],
-  w: number,
-  h: number,
-  sx: number,
-  sy: number,
-  dx: number,
-  dy: number,
-  minLen: number,
-  maxLen: number,
-  rng: () => number
-): { x: number; y: number; length: number } | null {
-  // Kaç karo açabileceğimizi hesapla
-  let maxPossible = 0;
-  let cx = sx;
-  let cy = sy;
+// Yeni WALL karolarını PATH'e çevir, sonra top mevcut PATH üzerinden kaymaya devam eder
+function carveAndSlide(
+  grid: number[], w: number, h: number,
+  sx: number, sy: number, dx: number, dy: number,
+  maxCarve: number
+): { endX: number; endY: number; carved: number } | null {
+  let newCarved = 0;
+  let cx = sx, cy = sy;
 
+  // Faz 1: Yeni karolar aç (WALL → PATH)
+  for (let i = 0; i < maxCarve; i++) {
+    const nx = cx + dx, ny = cy + dy;
+    if (nx < 1 || nx >= w - 1 || ny < 1 || ny >= h - 1) break;
+    if (grid[ny * w + nx] === PATH) break; // Mevcut PATH'e çarptı
+    cx = nx; cy = ny;
+    grid[cy * w + cx] = PATH;
+    newCarved++;
+  }
+
+  if (newCarved === 0) return null;
+
+  // Faz 2: Top mevcut PATH üzerinden kaymaya devam eder
   while (true) {
-    const nx = cx + dx;
-    const ny = cy + dy;
-    // Sınır kontrolü (en az 1 karo kenarda duvar kalsın)
-    if (nx <= 0 || nx >= w - 1 || ny <= 0 || ny >= h - 1) break;
-    // Yanlara sızma kontrolü: açılacak karo, slide yolunun yanlarında
-    // başka PATH'lere bitişik olmamalı (kendi yolumuz hariç)
-    const perpDx = dy;
-    const perpDy = dx;
-    let sideConflict = false;
-    for (const mult of [-1, 1]) {
-      const checkX = nx + perpDx * mult;
-      const checkY = ny + perpDy * mult;
-      if (checkX >= 0 && checkX < w && checkY >= 0 && checkY < h) {
-        if (grid[checkY * w + checkX] === PATH) {
-          // Yandaki PATH bizim koridorumuzdaki bir önceki karo değilse sorun
-          if (!(checkX === cx && checkY === cy)) {
-            sideConflict = true;
-          }
-        }
-      }
-    }
-    // Koridorun önündeki karo da kontrol (2 karo ileri)
-    const aheadX = nx + dx;
-    const aheadY = ny + dy;
-    if (aheadX >= 0 && aheadX < w && aheadY >= 0 && aheadY < h) {
-      if (grid[aheadY * w + aheadX] === PATH && maxPossible >= minLen - 1) {
-        // Eğer min uzunluğa ulaştıysak ve önde PATH varsa, burada durabiliriz
-        break;
-      }
-    }
-
-    if (sideConflict && maxPossible >= minLen) break;
-
-    maxPossible++;
-    cx = nx;
-    cy = ny;
-
-    if (grid[cy * w + cx] === PATH) {
-      // Mevcut PATH'e çarptık
-      break;
-    }
+    const nx = cx + dx, ny = cy + dy;
+    if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
+    if (grid[ny * w + nx] !== PATH) break;
+    cx = nx; cy = ny;
   }
 
-  if (maxPossible < minLen) return null;
-
-  const len = Math.min(minLen + Math.floor(rng() * (maxLen - minLen + 1)), maxPossible);
-
-  // Karoları aç
-  let fx = sx;
-  let fy = sy;
-  for (let i = 0; i < len; i++) {
-    fx += dx;
-    fy += dy;
-    grid[fy * w + fx] = PATH;
-  }
-
-  return { x: fx, y: fy, length: len };
+  if (cx === sx && cy === sy) return null;
+  return { endX: cx, endY: cy, carved: newCarved };
 }
 
-// BFS ile tüm PATH karoların erişilebilir olduğunu kontrol et (slide mekaniği ile)
+// BFS ile tüm PATH karoların erişilebilir olduğunu kontrol et
 function validateConnectivity(
-  grid: number[],
-  w: number,
-  h: number,
-  startX: number,
-  startY: number
+  grid: number[], w: number, h: number,
+  startX: number, startY: number
 ): boolean {
-  const pathCount = grid.filter((c) => c === PATH).length;
+  const pathCount = grid.filter(c => c === PATH).length;
   const visited = new Set<string>();
-  const queue: { x: number; y: number }[] = [{ x: startX, y: startY }];
+  const queue = [{ x: startX, y: startY }];
   visited.add(`${startX},${startY}`);
 
   while (queue.length > 0) {
@@ -158,12 +99,9 @@ function validateConnectivity(
     for (const { dx, dy } of DIR_VECTORS) {
       const result = simulateSlide(grid, w, h, x, y, dx, dy);
       if (result.dist > 0) {
-        // Slide yolundaki tüm karoları ziyaret edilmiş say
-        let cx = x;
-        let cy = y;
+        let cx = x, cy = y;
         for (let i = 0; i < result.dist; i++) {
-          cx += dx;
-          cy += dy;
+          cx += dx; cy += dy;
           const key = `${cx},${cy}`;
           if (!visited.has(key)) {
             visited.add(key);
@@ -177,132 +115,92 @@ function validateConnectivity(
   return visited.size >= pathCount;
 }
 
-// Çözümü slide ile doğrula
+// Çözümü doğrula
 function validateSolution(
-  grid: number[],
-  w: number,
-  h: number,
-  startX: number,
-  startY: number,
-  solution: Direction[]
+  grid: number[], w: number, h: number,
+  startX: number, startY: number, solution: Direction[]
 ): boolean {
   const painted = new Set<string>();
-  let cx = startX;
-  let cy = startY;
+  let cx = startX, cy = startY;
   painted.add(`${cx},${cy}`);
 
   for (const dir of solution) {
-    const vec = DIR_VECTORS.find((v) => v.dir === dir)!;
+    const vec = DIR_VECTORS.find(v => v.dir === dir)!;
     const result = simulateSlide(grid, w, h, cx, cy, vec.dx, vec.dy);
     if (result.dist === 0) return false;
 
-    // Yol boyunca tüm karoları boya
-    let px = cx;
-    let py = cy;
+    let px = cx, py = cy;
     for (let i = 0; i < result.dist; i++) {
-      px += vec.dx;
-      py += vec.dy;
+      px += vec.dx; py += vec.dy;
       painted.add(`${px},${py}`);
     }
-    cx = result.x;
-    cy = result.y;
+    cx = result.x; cy = result.y;
   }
 
-  const pathCount = grid.filter((c) => c === PATH).length;
-  return painted.size >= pathCount;
+  return painted.size >= grid.filter(c => c === PATH).length;
 }
 
-// Ana labirent üretim fonksiyonu (Ters Çözüm Algoritması)
+// Ana labirent üretim fonksiyonu
 export function generateMaze(
   levelId: number,
   config: DifficultyConfig
 ): LevelData | null {
   const rng = mulberry32(levelId * 7919 + 1337);
-  const { gridSize, minMoves, maxMoves, minCorridorLen, branchChance } = config;
-  const w = gridSize;
-  const h = gridSize;
+  const { gridSize, minMoves, maxMoves } = config;
+  const w = gridSize, h = gridSize;
 
-  // Birden fazla deneme yap (deterministik seed ile)
-  for (let attempt = 0; attempt < 30; attempt++) {
+  for (let attempt = 0; attempt < 80; attempt++) {
     const grid = new Array(w * h).fill(WALL);
 
-    // Merkeze yakın rastgele başlangıç noktası (hedef nokta)
-    const centerX = Math.floor(w / 2) + Math.floor((rng() - 0.5) * 2);
-    const centerY = Math.floor(h / 2) + Math.floor((rng() - 0.5) * 2);
-    // Sınırlardan en az 1 uzak ol
-    const goalX = Math.max(1, Math.min(w - 2, centerX));
-    const goalY = Math.max(1, Math.min(h - 2, centerY));
-    grid[goalY * w + goalX] = PATH;
+    // Rastgele başlangıç noktası (kenarlardan uzak)
+    let cx = 1 + Math.floor(rng() * (w - 2));
+    let cy = 1 + Math.floor(rng() * (h - 2));
+    grid[cy * w + cx] = PATH;
 
-    // Ters çözüm: hedefe doğru geri giden bir yol oluştur
     const solutionMoves: Direction[] = [];
-    let curX = goalX;
-    let curY = goalY;
-    const targetMoveCount = minMoves + Math.floor(rng() * (maxMoves - minMoves + 1));
-    let success = true;
+    let lastDir: Direction | null = null;
 
-    for (let move = 0; move < targetMoveCount; move++) {
-      const dirs = shuffle(DIR_VECTORS, rng);
-      let carved = false;
-
-      for (const { dx, dy, dir } of dirs) {
-        const result = carveCorridorFromPoint(
-          grid, w, h, curX, curY, dx, dy,
-          minCorridorLen, minCorridorLen + 2, rng
-        );
-
-        if (result) {
-          curX = result.x;
-          curY = result.y;
-          // Ters yön kaydet (çözüm tersten okunacak)
-          solutionMoves.push(OPPOSITE[dir]);
-          carved = true;
-          break;
-        }
+    for (let move = 0; move < maxMoves; move++) {
+      // Yön seç - son yönden farklısını tercih et
+      let dirs = shuffle(DIR_VECTORS, rng);
+      if (lastDir) {
+        const diff = dirs.filter(d => d.dir !== lastDir);
+        const same = dirs.filter(d => d.dir === lastDir);
+        dirs = [...diff, ...same];
       }
 
-      if (!carved) {
+      let moved = false;
+      for (const { dx, dy, dir } of dirs) {
+        const maxCarve = 1 + Math.floor(rng() * 4); // 1-4 yeni karo
+        const result = carveAndSlide(grid, w, h, cx, cy, dx, dy, maxCarve);
+        if (!result) continue;
+
+        cx = result.endX;
+        cy = result.endY;
+        solutionMoves.push(OPPOSITE[dir]);
+        lastDir = dir;
+        moved = true;
+        break;
+      }
+
+      if (!moved) {
         if (solutionMoves.length >= minMoves) break;
-        success = false;
         break;
       }
     }
 
-    if (!success || solutionMoves.length < minMoves) continue;
+    if (solutionMoves.length < minMoves) continue;
 
-    // Başlangıç pozisyonu = son koridor bitişi
-    const startX = curX;
-    const startY = curY;
-
-    // Çözüm ters sırada
-    const solution = solutionMoves.reverse();
-
-    // Dal ekleme: mevcut PATH karolarından rastgele dallar aç
-    const pathTiles: { x: number; y: number }[] = [];
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        if (grid[y * w + x] === PATH) {
-          pathTiles.push({ x, y });
-        }
-      }
-    }
-
-    const shuffledPaths = shuffle(pathTiles, rng);
-    for (const tile of shuffledPaths) {
-      if (rng() > branchChance) continue;
-      const dirs = shuffle(DIR_VECTORS, rng);
-      for (const { dx, dy } of dirs) {
-        carveCorridorFromPoint(
-          grid, w, h, tile.x, tile.y, dx, dy,
-          minCorridorLen, minCorridorLen + 1, rng
-        );
-        break; // Her tile'dan en fazla 1 dal
-      }
-    }
+    const startX = cx, startY = cy;
+    const solution = [...solutionMoves].reverse();
 
     // Doğrulama
-    if (!validateConnectivity(grid, w, h, startX, startY)) continue;
     if (!validateSolution(grid, w, h, startX, startY, solution)) continue;
+    if (!validateConnectivity(grid, w, h, startX, startY)) continue;
+
+    // Kalite kontrolü: yeterli PATH karosu olmalı
+    const pathCount = grid.filter(c => c === PATH).length;
+    if (pathCount < solution.length * 2) continue;
 
     return {
       id: levelId,

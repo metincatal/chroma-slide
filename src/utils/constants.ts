@@ -13,44 +13,44 @@ export const DIRECTIONS = {
 
 export type Direction = keyof typeof DIRECTIONS;
 
-// Renkler
+// Renkler - sade, rahatlatıcı palet
 export const COLORS = {
-  BACKGROUND: '#2c2c3a',
-  WALL_TOP: '#5a5a7a',
-  WALL_FACE: '#44445e',
-  WALL_SHADOW: '#1e1e30',
-  PATH: '#d4c5a9',
-  BALL_HIGHLIGHT: '#ffffff',
-  HUD_TEXT: '#ffffff',
+  BACKGROUND: '#2a2a35',
+  BOARD_LIGHT: '#9a8468',
+  BOARD_DARK: '#7a6548',
+  BOARD_SHADOW: '#5a4830',
+  PATH: '#e8dcc8',
+  PATH_SHADOW: '#c8b8a0',
+  HUD_TEXT: '#e0d8d0',
 } as const;
 
-// Seviye renkleri - her seviye farklı bir boya rengi kullanır
+// Seviye renkleri - yumuşak, pastel tonlar
 export const LEVEL_COLORS = [
-  '#ff6b6b', // Kırmızı
-  '#ffd93d', // Sarı
-  '#6bcb77', // Yeşil
-  '#4d96ff', // Mavi
-  '#ff922b', // Turuncu
-  '#cc5de8', // Mor
-  '#20c997', // Teal
-  '#f06595', // Pembe
-  '#a9e34b', // Lime
-  '#748ffc', // İndigo
+  '#d49494',
+  '#d4b878',
+  '#7eb894',
+  '#7494c4',
+  '#c89878',
+  '#a888b4',
+  '#6cb4a0',
+  '#c4889c',
+  '#94b86c',
+  '#8898b8',
 ] as const;
 
 // Boyutlar
 export const CELL_SIZE = 60;
 export const BALL_RADIUS = 22;
-export const WALL_HEIGHT = 10;
+export const WALL_HEIGHT = 8;
 export const SWIPE_THRESHOLD = 30;
 
 // Animasyon
-export const SLIDE_SPEED = 0.15; // Saniye / karo
-export const PAINT_ANIM_DURATION = 200; // ms
+export const SLIDE_SPEED = 0.07; // Saniye / karo (hızlı ve kaygan)
+export const PAINT_ANIM_DURATION = 150; // ms
 
 // Yıldız hesaplama eşikleri
 export const STAR_THRESHOLDS = {
-  THREE: 1.0,  // targetMoves veya altı
-  TWO: 1.5,    // targetMoves * 1.5 veya altı
-  ONE: Infinity // Her zaman en az 1 yıldız
+  THREE: 1.0,
+  TWO: 1.5,
+  ONE: Infinity
 } as const;

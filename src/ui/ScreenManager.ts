@@ -1,14 +1,16 @@
-import { getUnlockedLevel, getStars, getAllStars } from '../utils/storage';
+import { getUnlockedLevel, getAllStars } from '../utils/storage';
 import { LEVEL_COLORS } from '../utils/constants';
 import { playClick, resumeAudio } from '../utils/sound';
 
-export type Screen = 'menu' | 'levels' | 'game' | 'complete';
+export type Screen = 'menu' | 'levels' | 'game';
 
 interface ScreenCallbacks {
   onPlay: () => void;
   onSelectLevel: (levelId: number) => void;
   onBack: () => void;
   onRestart: () => void;
+  // DEBUG: Hızlı level geçiş (sonra kaldırılacak)
+  onPrevLevel: () => void;
   onNextLevel: () => void;
 }
 
@@ -37,9 +39,6 @@ export class ScreenManager {
         break;
       case 'game':
         this.showGameHUD(data as { levelId: number; moves: number; progress: number });
-        break;
-      case 'complete':
-        this.showComplete(data as { levelId: number; stars: number; moves: number; targetMoves: number; isLastLevel: boolean });
         break;
     }
   }
@@ -89,7 +88,7 @@ export class ScreenManager {
 
       const colorIdx = (i - 1) % LEVEL_COLORS.length;
       const style = isUnlocked && !isCompleted
-        ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 40)})`
+        ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 30)})`
         : '';
 
       const starsText = isCompleted
@@ -107,7 +106,9 @@ export class ScreenManager {
 
     const html = `
       <div class="level-screen">
-        <button class="back-btn" id="btn-back">←</button>
+        <button class="back-btn" id="btn-back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
         <div class="level-screen-title">Seviye Seç</div>
         <div class="level-grid">${levelsHtml}</div>
       </div>
@@ -149,6 +150,11 @@ export class ScreenManager {
       <div class="progress-bar">
         <div class="progress-fill" style="width: ${data.progress * 100}%"></div>
       </div>
+      <!-- DEBUG: Hızlı level geçiş - sonra kaldırılacak -->
+      <div class="debug-nav">
+        <button class="debug-btn" id="btn-prev-level">‹</button>
+        <button class="debug-btn" id="btn-next-level">›</button>
+      </div>
     `;
     this.overlay.innerHTML = html;
 
@@ -161,44 +167,13 @@ export class ScreenManager {
       playClick();
       this.callbacks.onRestart();
     });
-  }
 
-  private showComplete(data: {
-    levelId: number;
-    stars: number;
-    moves: number;
-    targetMoves: number;
-    isLastLevel: boolean;
-  }) {
-    const starsHtml = Array.from({ length: 3 }, (_, i) => {
-      const filled = i < data.stars;
-      const delay = i * 0.2;
-      return `<span class="star-animated" style="animation-delay: ${delay}s">${filled ? '★' : '☆'}</span>`;
-    }).join('');
-
-    const html = `
-      <div class="complete-screen">
-        <div class="complete-title">Tebrikler!</div>
-        <div class="complete-stars">${starsHtml}</div>
-        <div class="complete-stats">
-          Hamle: ${data.moves} / ${data.targetMoves}<br>
-          Seviye ${data.levelId} tamamlandı
-        </div>
-        <div class="complete-buttons">
-          <button class="btn btn-secondary" id="btn-retry">Tekrar</button>
-          ${!data.isLastLevel ? '<button class="btn btn-primary" id="btn-next">Sonraki</button>' : ''}
-        </div>
-      </div>
-    `;
-    this.overlay.innerHTML = html;
-
-    this.overlay.querySelector('#btn-retry')?.addEventListener('click', () => {
-      playClick();
-      this.callbacks.onRestart();
+    // DEBUG listeners
+    this.overlay.querySelector('#btn-prev-level')!.addEventListener('click', () => {
+      this.callbacks.onPrevLevel();
     });
 
-    this.overlay.querySelector('#btn-next')?.addEventListener('click', () => {
-      playClick();
+    this.overlay.querySelector('#btn-next-level')!.addEventListener('click', () => {
       this.callbacks.onNextLevel();
     });
   }
