@@ -8,10 +8,7 @@ interface ScreenCallbacks {
   onPlay: () => void;
   onSelectLevel: (levelId: number) => void;
   onBack: () => void;
-  onRestart: () => void;
-  // DEBUG: Hızlı level geçiş (sonra kaldırılacak)
-  onPrevLevel: () => void;
-  onNextLevel: () => void;
+  onScreenshot: () => void;
 }
 
 export class ScreenManager {
@@ -38,7 +35,7 @@ export class ScreenManager {
         this.showLevelSelect();
         break;
       case 'game':
-        this.showGameHUD(data as { levelId: number; moves: number; progress: number });
+        this.showGameHUD(data as { levelId: number; progress: number });
         break;
     }
   }
@@ -47,10 +44,8 @@ export class ScreenManager {
     return this.currentScreen;
   }
 
-  updateHUD(moves: number, progress: number) {
-    const movesEl = this.overlay.querySelector('.hud-moves-display');
+  updateHUD(progress: number) {
     const progressFill = this.overlay.querySelector('.progress-fill') as HTMLElement;
-    if (movesEl) movesEl.textContent = String(moves);
     if (progressFill) progressFill.style.width = `${progress * 100}%`;
   }
 
@@ -58,7 +53,7 @@ export class ScreenManager {
     const html = `
       <div class="menu-screen">
         <div class="menu-title"><span class="chroma">Chroma</span>Slide</div>
-        <div class="menu-subtitle">Kayarak Boya, Labirenti Çöz</div>
+        <div class="menu-subtitle">Kayarak Boya, Labirenti Coz</div>
         <button class="btn btn-primary" id="btn-play">OYNA</button>
       </div>
     `;
@@ -88,12 +83,12 @@ export class ScreenManager {
 
       const colorIdx = (i - 1) % LEVEL_COLORS.length;
       const style = isUnlocked && !isCompleted
-        ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 30)})`
+        ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 20)})`
         : '';
 
       const starsText = isCompleted
-        ? `<div class="level-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>`
-        : isUnlocked ? '' : '<div class="level-stars">🔒</div>';
+        ? `<div class="level-stars">${'\u2605'.repeat(stars)}${'\u2606'.repeat(3 - stars)}</div>`
+        : isUnlocked ? '' : '<div class="level-stars">\uD83D\uDD12</div>';
 
       levelsHtml += `
         <button class="${className}" ${!isUnlocked ? 'disabled' : ''}
@@ -109,7 +104,7 @@ export class ScreenManager {
         <button class="back-btn" id="btn-back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <div class="level-screen-title">Seviye Seç</div>
+        <div class="level-screen-title">Seviye Sec</div>
         <div class="level-grid">${levelsHtml}</div>
       </div>
     `;
@@ -129,7 +124,7 @@ export class ScreenManager {
     });
   }
 
-  private showGameHUD(data: { levelId: number; moves: number; progress: number }) {
+  private showGameHUD(data: { levelId: number; progress: number }) {
     const html = `
       <div class="game-hud">
         <div class="hud-left">
@@ -139,21 +134,15 @@ export class ScreenManager {
         </div>
         <div class="hud-center">
           <div class="hud-level-label">Seviye ${data.levelId}</div>
-          <div class="hud-moves-display">${data.moves}</div>
         </div>
         <div class="hud-right">
-          <button class="hud-btn" id="btn-restart">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          <button class="hud-btn" id="btn-screenshot">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M3 9h2"/><path d="M19 9h2"/></svg>
           </button>
         </div>
       </div>
       <div class="progress-bar">
         <div class="progress-fill" style="width: ${data.progress * 100}%"></div>
-      </div>
-      <!-- DEBUG: Hızlı level geçiş - sonra kaldırılacak -->
-      <div class="debug-nav">
-        <button class="debug-btn" id="btn-prev-level">‹</button>
-        <button class="debug-btn" id="btn-next-level">›</button>
       </div>
     `;
     this.overlay.innerHTML = html;
@@ -163,18 +152,9 @@ export class ScreenManager {
       this.callbacks.onBack();
     });
 
-    this.overlay.querySelector('#btn-restart')!.addEventListener('click', () => {
+    this.overlay.querySelector('#btn-screenshot')!.addEventListener('click', () => {
       playClick();
-      this.callbacks.onRestart();
-    });
-
-    // DEBUG listeners
-    this.overlay.querySelector('#btn-prev-level')!.addEventListener('click', () => {
-      this.callbacks.onPrevLevel();
-    });
-
-    this.overlay.querySelector('#btn-next-level')!.addEventListener('click', () => {
-      this.callbacks.onNextLevel();
+      this.callbacks.onScreenshot();
     });
   }
 

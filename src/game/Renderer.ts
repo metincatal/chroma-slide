@@ -35,6 +35,11 @@ export class Renderer {
     this.dpr = dpr;
   }
 
+  clear() {
+    this.ctx.fillStyle = COLORS.BACKGROUND;
+    this.ctx.fillRect(0, 0, this.width, this.height);
+  }
+
   calculateLayout(gridWidth: number, gridHeight: number) {
     const maxCellW = (this.width * 0.88) / gridWidth;
     const maxCellH = (this.height * 0.7) / gridHeight;

@@ -8,7 +8,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #2a2a35;
+  background: #f0ece6;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   touch-action: none;
   user-select: none;
@@ -39,7 +39,7 @@ html, body {
   pointer-events: auto;
 }
 
-/* Ana Menü */
+/* Ana Menu */
 .menu-screen {
   display: flex;
   flex-direction: column;
@@ -52,12 +52,12 @@ html, body {
 .menu-title {
   font-size: 44px;
   font-weight: 900;
-  color: #e0d8d0;
+  color: #6a6058;
   letter-spacing: 3px;
 }
 
 .menu-title .chroma {
-  background: linear-gradient(135deg, #d49494, #d4b878, #7eb894, #7494c4);
+  background: linear-gradient(135deg, #f4c4c4, #f4dca8, #b0e4c4, #b4d4f0);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -65,7 +65,7 @@ html, body {
 
 .menu-subtitle {
   font-size: 14px;
-  color: rgba(224, 216, 208, 0.4);
+  color: rgba(106, 96, 88, 0.5);
   letter-spacing: 2px;
   margin-bottom: 28px;
 }
@@ -89,11 +89,12 @@ html, body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #9a8468, #7a6548);
-  box-shadow: 0 4px 16px rgba(154, 132, 104, 0.3);
+  background: linear-gradient(135deg, #c4b498, #b8a888);
+  box-shadow: 0 4px 16px rgba(180, 164, 136, 0.35);
+  color: #fff;
 }
 
-/* Seviye Seçim */
+/* Seviye Secim */
 .level-screen {
   display: flex;
   flex-direction: column;
@@ -105,7 +106,7 @@ html, body {
 .level-screen-title {
   font-size: 24px;
   font-weight: 700;
-  color: #e0d8d0;
+  color: #6a6058;
   margin: 20px 0;
 }
 
@@ -133,7 +134,7 @@ html, body {
   gap: 2px;
   font-size: 16px;
   font-weight: 700;
-  color: #fff;
+  color: #6a6058;
   transition: transform 0.15s ease;
   position: relative;
 }
@@ -143,19 +144,21 @@ html, body {
 }
 
 .level-btn.unlocked {
-  background: rgba(154, 132, 104, 0.5);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  background: rgba(196, 180, 152, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  color: #6a6058;
 }
 
 .level-btn.locked {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(106, 96, 88, 0.25);
   cursor: not-allowed;
 }
 
 .level-btn.completed {
-  background: rgba(126, 184, 148, 0.45);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  background: rgba(176, 228, 196, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  color: #5a7868;
 }
 
 .level-stars {
@@ -167,10 +170,10 @@ html, body {
   position: absolute;
   top: 20px;
   left: 20px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.05);
   border: none;
   border-radius: 10px;
-  color: #e0d8d0;
+  color: #6a6058;
   font-size: 20px;
   width: 44px;
   height: 44px;
@@ -184,7 +187,7 @@ html, body {
 }
 
 .back-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.08);
 }
 
 /* Oyun HUD */
@@ -217,23 +220,18 @@ html, body {
 }
 
 .hud-level-label {
-  font-size: 10px;
-  color: rgba(224, 216, 208, 0.4);
+  font-size: 13px;
+  color: rgba(106, 96, 88, 0.6);
   text-transform: uppercase;
   letter-spacing: 1px;
-}
-
-.hud-moves-display {
-  font-size: 26px;
-  font-weight: 800;
-  color: #e0d8d0;
+  font-weight: 600;
 }
 
 .hud-btn {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.05);
   border: none;
   border-radius: 10px;
-  color: #e0d8d0;
+  color: #6a6058;
   font-size: 18px;
   width: 40px;
   height: 40px;
@@ -245,7 +243,7 @@ html, body {
 }
 
 .hud-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .progress-bar {
@@ -254,44 +252,14 @@ html, body {
   left: 0;
   width: 100%;
   height: 3px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #9a8468, #d4b878);
+  background: linear-gradient(90deg, #c4b498, #f4dca8);
   transition: width 0.3s ease;
   border-radius: 0 2px 2px 0;
-}
-
-/* DEBUG: Hızlı level geçiş - sonra kaldırılacak */
-.debug-nav {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 24px;
-  pointer-events: auto;
-}
-
-.debug-btn {
-  background: rgba(255, 255, 255, 0.06);
-  border: none;
-  border-radius: 8px;
-  color: rgba(224, 216, 208, 0.3);
-  font-size: 20px;
-  width: 36px;
-  height: 36px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-}
-
-.debug-btn:active {
-  background: rgba(255, 255, 255, 0.12);
 }
 
 @keyframes fadeIn {

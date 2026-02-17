@@ -13,29 +13,29 @@ export const DIRECTIONS = {
 
 export type Direction = keyof typeof DIRECTIONS;
 
-// Renkler - sade, rahatlatıcı palet
+// Renkler - açık, aydınlık palet
 export const COLORS = {
-  BACKGROUND: '#2a2a35',
-  BOARD_LIGHT: '#9a8468',
-  BOARD_DARK: '#7a6548',
-  BOARD_SHADOW: '#5a4830',
-  PATH: '#e8dcc8',
-  PATH_SHADOW: '#c8b8a0',
-  HUD_TEXT: '#e0d8d0',
+  BACKGROUND: '#f0ece6',
+  BOARD_LIGHT: '#d4c4a8',
+  BOARD_DARK: '#c4b498',
+  BOARD_SHADOW: '#b8a888',
+  PATH: '#faf7f2',
+  PATH_SHADOW: '#e8e0d4',
+  HUD_TEXT: '#6a6058',
 } as const;
 
-// Seviye renkleri - yumuşak, pastel tonlar
+// Seviye renkleri - açık pastel tonlar
 export const LEVEL_COLORS = [
-  '#d49494',
-  '#d4b878',
-  '#7eb894',
-  '#7494c4',
-  '#c89878',
-  '#a888b4',
-  '#6cb4a0',
-  '#c4889c',
-  '#94b86c',
-  '#8898b8',
+  '#f4c4c4',
+  '#f4dca8',
+  '#b0e4c4',
+  '#b4d4f0',
+  '#f0d0b4',
+  '#d4b8e4',
+  '#a0e4d0',
+  '#f0b8cc',
+  '#c8e8a0',
+  '#b8c8e4',
 ] as const;
 
 // Boyutlar
