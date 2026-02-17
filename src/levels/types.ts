@@ -1,3 +1,5 @@
+import { Direction } from '../utils/constants';
+
 export interface LevelData {
   id: number;
   name: string;
@@ -12,4 +14,8 @@ export interface LevelData {
   targetMoves: number;
   // Seviye renk indeksi (LEVEL_COLORS'dan)
   colorIndex: number;
+  // Çözüm yolu (prosedürel seviyeler için)
+  solution?: Direction[];
+  // Zorluk seviyesi
+  difficulty?: string;
 }

@@ -19,6 +19,10 @@ export class Renderer {
   private confetti: Confetti[] = [];
   private confettiActive = false;
 
+  // Dış alan cache
+  private exteriorCache: Set<string> | null = null;
+  private cachedLevelId = -1;
+
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D context alınamadı');
@@ -40,6 +44,44 @@ export class Renderer {
     this.offsetY = Math.floor((this.height - gridHeight * this.cellSize) / 2) + 30 * this.dpr;
   }
 
+  // Dış alan (exterior) hesapla: PATH'e komşu olmayan WALL karoları
+  private computeExterior(level: Level): Set<string> {
+    if (this.exteriorCache && this.cachedLevelId === level.data.id) {
+      return this.exteriorCache;
+    }
+
+    const { width: gw, height: gh } = level.data;
+    const exterior = new Set<string>();
+
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        if (level.data.grid[y * gw + x] !== WALL) continue;
+
+        // Bu WALL karosu PATH'e komşu mu?
+        let adjacentToPath = false;
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && nx < gw && ny >= 0 && ny < gh) {
+            const tile = level.data.grid[ny * gw + nx];
+            if (tile === PATH) {
+              adjacentToPath = true;
+              break;
+            }
+          }
+        }
+
+        if (!adjacentToPath) {
+          exterior.add(`${x},${y}`);
+        }
+      }
+    }
+
+    this.exteriorCache = exterior;
+    this.cachedLevelId = level.data.id;
+    return exterior;
+  }
+
   render(level: Level, ball: Ball) {
     const ctx = this.ctx;
     const { width: gw, height: gh } = level.data;
@@ -53,17 +95,16 @@ export class Renderer {
     const now = performance.now();
     const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
     const paintColor = LEVEL_COLORS[colorIdx];
+    const exterior = this.computeExterior(level);
 
-    // Karoları çiz
+    // 1. Önce PATH ve PAINTED karoları çiz (birleşik yüzey, grid çizgisi yok)
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         const tile = level.grid[y * gw + x];
         const px = this.offsetX + x * this.cellSize;
         const py = this.offsetY + y * this.cellSize;
 
-        if (tile === WALL) {
-          this.drawWall(px, py);
-        } else if (tile === PATH) {
+        if (tile === PATH) {
           this.drawPath(px, py);
         } else if (tile === PAINTED) {
           const animKey = `${x},${y}`;
@@ -74,10 +115,23 @@ export class Renderer {
       }
     }
 
-    // Topu çiz
+    // 2. İç duvar blokları (3D yükseltilmiş) - dış alan hariç
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const tile = level.data.grid[y * gw + x];
+        if (tile !== WALL) continue;
+        if (exterior.has(`${x},${y}`)) continue; // Dış alan çizilmez
+
+        const px = this.offsetX + x * this.cellSize;
+        const py = this.offsetY + y * this.cellSize;
+        this.drawWall(px, py);
+      }
+    }
+
+    // 3. Top
     this.drawBall(ball, paintColor);
 
-    // Konfeti
+    // 4. Konfeti
     if (this.confettiActive) {
       this.updateConfetti();
     }
@@ -87,31 +141,31 @@ export class Renderer {
     const ctx = this.ctx;
     const s = this.cellSize;
     const h = WALL_HEIGHT * this.dpr;
+    const r = 4 * this.dpr; // Köşe yuvarlatma
 
-    // Duvar gölgesi
+    // Gölge (alt kısım)
     ctx.fillStyle = COLORS.WALL_SHADOW;
-    ctx.fillRect(x, y + h, s, s);
+    this.roundRect(x, y + h, s, s, r);
 
-    // Duvar yüzü
-    ctx.fillStyle = COLORS.WALL_FACE;
-    ctx.fillRect(x, y, s, s);
+    // Duvar yüzü (gradient)
+    const gradient = ctx.createLinearGradient(x, y, x, y + s);
+    gradient.addColorStop(0, COLORS.WALL_TOP);
+    gradient.addColorStop(1, COLORS.WALL_FACE);
+    ctx.fillStyle = gradient;
+    this.roundRect(x, y, s, s, r);
 
-    // Üst kenar (3D efekt)
-    ctx.fillStyle = COLORS.WALL_TOP;
-    ctx.fillRect(x, y, s, h);
+    // Üst kenar vurgu (parlak çizgi)
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    this.roundRect(x, y, s, h, r);
   }
 
   private drawPath(x: number, y: number) {
     const ctx = this.ctx;
     const s = this.cellSize;
 
+    // Birleşik yüzey, grid çizgisi yok
     ctx.fillStyle = COLORS.PATH;
     ctx.fillRect(x, y, s, s);
-
-    // Kenar çizgisi
-    ctx.strokeStyle = COLORS.PATH_BORDER;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
   }
 
   private drawPainted(x: number, y: number, color: string, animT: number) {
@@ -175,6 +229,23 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.35, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fill();
+  }
+
+  // roundRect yardımcı fonksiyonu
+  private roundRect(x: number, y: number, w: number, h: number, r: number) {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
     ctx.fill();
   }
 

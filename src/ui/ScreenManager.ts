@@ -49,7 +49,7 @@ export class ScreenManager {
   }
 
   updateHUD(moves: number, progress: number) {
-    const movesEl = this.overlay.querySelector('.hud-moves');
+    const movesEl = this.overlay.querySelector('.hud-moves-display');
     const progressFill = this.overlay.querySelector('.progress-fill') as HTMLElement;
     if (movesEl) movesEl.textContent = String(moves);
     if (progressFill) progressFill.style.width = `${progress * 100}%`;
@@ -59,6 +59,7 @@ export class ScreenManager {
     const html = `
       <div class="menu-screen">
         <div class="menu-title"><span class="chroma">Chroma</span>Slide</div>
+        <div class="menu-subtitle">Kayarak Boya, Labirenti Çöz</div>
         <button class="btn btn-primary" id="btn-play">OYNA</button>
       </div>
     `;
@@ -131,18 +132,18 @@ export class ScreenManager {
     const html = `
       <div class="game-hud">
         <div class="hud-left">
-          <button class="hud-btn" id="btn-hud-back">←</button>
-          <div class="hud-info">
-            <span>Seviye</span>
-            ${data.levelId}
-          </div>
+          <button class="hud-btn" id="btn-hud-back">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+        </div>
+        <div class="hud-center">
+          <div class="hud-level-label">Seviye ${data.levelId}</div>
+          <div class="hud-moves-display">${data.moves}</div>
         </div>
         <div class="hud-right">
-          <div class="hud-info">
-            <span>Hamle</span>
-            <span class="hud-moves" style="font-size:16px;opacity:1">${data.moves}</span>
-          </div>
-          <button class="hud-btn" id="btn-restart">↺</button>
+          <button class="hud-btn" id="btn-restart">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          </button>
         </div>
       </div>
       <div class="progress-bar">

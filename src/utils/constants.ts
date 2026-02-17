@@ -15,14 +15,12 @@ export type Direction = keyof typeof DIRECTIONS;
 
 // Renkler
 export const COLORS = {
-  BACKGROUND: '#1a1a2e',
-  WALL_TOP: '#3d3d5c',
-  WALL_FACE: '#2d2d44',
-  WALL_SHADOW: '#1e1e35',
-  PATH: '#252542',
-  PATH_BORDER: '#1e1e35',
+  BACKGROUND: '#2c2c3a',
+  WALL_TOP: '#5a5a7a',
+  WALL_FACE: '#44445e',
+  WALL_SHADOW: '#1e1e30',
+  PATH: '#d4c5a9',
   BALL_HIGHLIGHT: '#ffffff',
-  GRID_LINE: '#1e1e35',
   HUD_TEXT: '#ffffff',
 } as const;
 
@@ -43,7 +41,7 @@ export const LEVEL_COLORS = [
 // Boyutlar
 export const CELL_SIZE = 60;
 export const BALL_RADIUS = 22;
-export const WALL_HEIGHT = 6;
+export const WALL_HEIGHT = 10;
 export const SWIPE_THRESHOLD = 30;
 
 // Animasyon

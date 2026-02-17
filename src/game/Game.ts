@@ -3,10 +3,9 @@ import { Input } from './Input';
 import { Ball } from './Ball';
 import { Level } from './Level';
 import { ScreenManager, Screen } from '../ui/ScreenManager';
-import { getAllLevels } from '../levels/index';
-import { LevelData } from '../levels/types';
+import { getLevelById, getTotalLevels } from '../levels/index';
 import { Direction, LEVEL_COLORS } from '../utils/constants';
-import { saveProgress, getStars } from '../utils/storage';
+import { saveProgress } from '../utils/storage';
 import { playSlide, playComplete, playBump, resumeAudio } from '../utils/sound';
 
 export class Game {
@@ -14,7 +13,6 @@ export class Game {
   private renderer: Renderer;
   private input: Input;
   private screenManager: ScreenManager;
-  private levels: LevelData[];
 
   private currentLevel: Level | null = null;
   private ball: Ball | null = null;
@@ -25,13 +23,12 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement, overlay: HTMLDivElement) {
     this.canvas = canvas;
-    this.levels = getAllLevels();
     this.renderer = new Renderer(canvas);
 
     this.input = new Input(canvas, (dir) => this.handleSwipe(dir));
     this.input.setEnabled(false);
 
-    this.screenManager = new ScreenManager(overlay, this.levels.length, {
+    this.screenManager = new ScreenManager(overlay, getTotalLevels(), {
       onPlay: () => this.showScreen('levels'),
       onSelectLevel: (id) => this.startLevel(id),
       onBack: () => {
@@ -49,7 +46,7 @@ export class Game {
       onNextLevel: () => {
         if (this.currentLevel) {
           const nextId = this.currentLevel.data.id + 1;
-          if (nextId <= this.levels.length) {
+          if (nextId <= getTotalLevels()) {
             this.startLevel(nextId);
           } else {
             this.showScreen('levels');
@@ -83,7 +80,7 @@ export class Game {
   }
 
   private startLevel(levelId: number) {
-    const levelData = this.levels.find((l) => l.id === levelId);
+    const levelData = getLevelById(levelId);
     if (!levelData) return;
 
     this.currentLevel = new Level(levelData);
@@ -178,7 +175,7 @@ export class Game {
         stars,
         moves: this.moves,
         targetMoves: level.data.targetMoves,
-        isLastLevel: level.data.id >= this.levels.length,
+        isLastLevel: level.data.id >= getTotalLevels(),
       });
     }, 800);
   }
