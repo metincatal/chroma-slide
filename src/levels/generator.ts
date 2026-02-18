@@ -1,4 +1,4 @@
-import { WALL, PATH, Direction } from '../utils/constants';
+import { WALL, PATH, Direction, GameMode } from '../utils/constants';
 import { LevelData } from './types';
 import { DifficultyConfig } from './procedural';
 
@@ -54,7 +54,6 @@ function solvePuzzle(
 ): Direction[] | null {
   const totalPath = grid.filter(c => c === PATH).length;
 
-  // Bitset ile hizli painted takibi
   function dfs(
     x: number, y: number,
     paintedBits: Uint8Array,
@@ -69,7 +68,6 @@ function solvePuzzle(
       const slide = simulateSlide(grid, w, h, x, y, dx, dy);
       if (slide.dist === 0) continue;
 
-      // Yeni boyanan karo sayisini hesapla
       let newCount = 0;
       const changedIndices: number[] = [];
       for (const t of slide.tiles) {
@@ -82,7 +80,6 @@ function solvePuzzle(
       }
 
       if (newCount === 0) {
-        // Geri al
         for (const idx of changedIndices) paintedBits[idx] = 0;
         continue;
       }
@@ -92,7 +89,6 @@ function solvePuzzle(
       if (result) return result;
       moves.pop();
 
-      // Geri al
       for (const idx of changedIndices) paintedBits[idx] = 0;
     }
 
@@ -121,15 +117,35 @@ function countJunctions(grid: number[], w: number, h: number): number {
   return junctions;
 }
 
+// BFS baglantilik kontrolu
+function bfsConnected(grid: number[], w: number, h: number, startX: number, startY: number): Set<number> {
+  const visited = new Set<number>();
+  const queue = [startY * w + startX];
+  visited.add(queue[0]);
+  while (queue.length > 0) {
+    const idx = queue.shift()!;
+    const x = idx % w, y = Math.floor(idx / w);
+    for (const { dx, dy } of DIR_VECTORS) {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+        const nIdx = ny * w + nx;
+        if (grid[nIdx] === PATH && !visited.has(nIdx)) {
+          visited.add(nIdx);
+          queue.push(nIdx);
+        }
+      }
+    }
+  }
+  return visited;
+}
+
 // ===== STRATEJI 1: Dallanmali Koridor Agi =====
-// Ana yol + dallar olusturur, kavsaklar yaratir
 function generateBranchingMaze(
   rng: () => number, w: number, h: number, config: DifficultyConfig
 ): { grid: number[]; startX: number; startY: number } | null {
   const grid = new Array(w * h).fill(WALL);
   const branchPoints: { x: number; y: number; fromDir: Direction }[] = [];
 
-  // Ana omurga: Ortadan gecen kivrilan yol
   let cx = 1 + Math.floor(rng() * (w - 2));
   let cy = 1 + Math.floor(rng() * (h - 2));
   grid[cy * w + cx] = PATH;
@@ -137,11 +153,9 @@ function generateBranchingMaze(
   const startX = cx, startY = cy;
   let lastDir: Direction | null = null;
 
-  // Ana yol olustur (6-14 segment)
   const mainSegments = config.minMoves + Math.floor(rng() * (config.maxMoves - config.minMoves));
   for (let seg = 0; seg < mainSegments; seg++) {
     let dirs = shuffle(DIR_VECTORS, rng);
-    // Son yonun tersini oncelikle disla (geri gitmesin)
     if (lastDir) {
       const opp = lastDir === 'UP' ? 'DOWN' : lastDir === 'DOWN' ? 'UP' : lastDir === 'LEFT' ? 'RIGHT' : 'LEFT';
       dirs = dirs.filter(d => d.dir !== opp);
@@ -150,7 +164,7 @@ function generateBranchingMaze(
 
     let carved = false;
     for (const { dx, dy, dir } of dirs) {
-      const len = 2 + Math.floor(rng() * 4); // 2-5 karo uzunlugunda segment
+      const len = 2 + Math.floor(rng() * 4);
       let nx = cx, ny = cy;
       let canCarve = true;
       const newTiles: { x: number; y: number }[] = [];
@@ -163,13 +177,11 @@ function generateBranchingMaze(
 
       if (!canCarve || newTiles.length === 0) continue;
 
-      // En az 1 yeni karo acilmali
       const newCount = newTiles.filter(t => grid[t.y * w + t.x] === WALL).length;
       if (newCount === 0) continue;
 
       for (const t of newTiles) grid[t.y * w + t.x] = PATH;
 
-      // Dal noktasi olarak kaydet
       if (seg > 1 && rng() > 0.3) {
         branchPoints.push({ x: cx, y: cy, fromDir: dir });
       }
@@ -184,15 +196,13 @@ function generateBranchingMaze(
     if (!carved) break;
   }
 
-  // Dallar ekle - ana yoldan ayrilip dead-end veya loop olusturur
   const branchCount = Math.max(2, Math.floor(config.minMoves * 0.5));
   const shuffledBranches = shuffle(branchPoints, rng);
 
   for (let b = 0; b < Math.min(branchCount, shuffledBranches.length); b++) {
     const bp = shuffledBranches[b];
-    let bx = bp.x, by = bp.y;
+    const bx = bp.x, by = bp.y;
 
-    // Dal icin farkli yon sec
     const branchDirs = shuffle(DIR_VECTORS, rng);
     for (const { dx, dy } of branchDirs) {
       const branchLen = 2 + Math.floor(rng() * 3);
@@ -223,13 +233,11 @@ function generateBranchingMaze(
 }
 
 // ===== STRATEJI 2: Oda + Sutun Tabanlı =====
-// Acik alanlar icinde duvar sutunlari ile durma noktalari olusturur
 function generateRoomMaze(
   rng: () => number, w: number, h: number, config: DifficultyConfig
 ): { grid: number[]; startX: number; startY: number } | null {
   const grid = new Array(w * h).fill(WALL);
 
-  // Ic alani ac (kenar duvarlari birak)
   const margin = 1;
   for (let y = margin; y < h - margin; y++) {
     for (let x = margin; x < w - margin; x++) {
@@ -237,27 +245,24 @@ function generateRoomMaze(
     }
   }
 
-  // Duvar sutunlari ve bloklari yerlestir
-  // Sutun yogunlugu zorluga gore artar
   const innerW = w - 2 * margin;
   const innerH = h - 2 * margin;
-  const pillarDensity = 0.30 + rng() * 0.15; // %30-45 duvara cevir
+  const pillarDensity = 0.30 + rng() * 0.15;
   const targetWalls = Math.floor(innerW * innerH * pillarDensity);
 
-  // Farkli sekillerde duvarlar ekle: tekil sutunlar, L sekli, cizgiler
   let wallsPlaced = 0;
   for (let attempt = 0; attempt < targetWalls * 3 && wallsPlaced < targetWalls; attempt++) {
     const shapeType = rng();
     const px = margin + Math.floor(rng() * innerW);
     const py = margin + Math.floor(rng() * innerH);
 
-    if (shapeType < 0.4) {
+    if (shapeType < 0.30) {
       // Tekil sutun
       if (grid[py * w + px] === PATH) {
         grid[py * w + px] = WALL;
         wallsPlaced++;
       }
-    } else if (shapeType < 0.7) {
+    } else if (shapeType < 0.50) {
       // Yatay veya dikey cizgi (2-3 karo)
       const len = 2 + Math.floor(rng() * 2);
       const horizontal = rng() > 0.5;
@@ -275,7 +280,7 @@ function generateRoomMaze(
           wallsPlaced++;
         }
       }
-    } else {
+    } else if (shapeType < 0.75) {
       // L sekli
       if (px + 1 < w - margin && py + 1 < h - margin) {
         const tiles = [
@@ -291,10 +296,31 @@ function generateRoomMaze(
           }
         }
       }
+    } else {
+      // Dolu blok: 2x2, 2x3, 3x2
+      const blockTypes = [[2,2],[2,3],[3,2]];
+      const [bw, bh] = blockTypes[Math.floor(rng() * blockTypes.length)];
+      if (px + bw <= w - margin && py + bh <= h - margin) {
+        const tiles: { x: number; y: number }[] = [];
+        let allPath = true;
+        for (let by = 0; by < bh; by++) {
+          for (let bx = 0; bx < bw; bx++) {
+            if (grid[(py + by) * w + (px + bx)] !== PATH) { allPath = false; break; }
+            tiles.push({ x: px + bx, y: py + by });
+          }
+          if (!allPath) break;
+        }
+        if (allPath && tiles.length >= 4) {
+          for (const t of tiles) {
+            grid[t.y * w + t.x] = WALL;
+            wallsPlaced++;
+          }
+        }
+      }
     }
   }
 
-  // Baslangic noktasi sec (PATH olan bir karo)
+  // Baslangic noktasi sec
   const pathTiles: { x: number; y: number }[] = [];
   for (let y = margin; y < h - margin; y++) {
     for (let x = margin; x < w - margin; x++) {
@@ -306,24 +332,8 @@ function generateRoomMaze(
 
   const start = pathTiles[Math.floor(rng() * pathTiles.length)];
 
-  // Baglantilik kontrolu - BFS ile tum PATH'ler erisilebilir mi
-  const visited = new Set<number>();
-  const queue = [start.y * w + start.x];
-  visited.add(queue[0]);
-  while (queue.length > 0) {
-    const idx = queue.shift()!;
-    const x = idx % w, y = Math.floor(idx / w);
-    for (const { dx, dy } of DIR_VECTORS) {
-      const nx = x + dx, ny = y + dy;
-      if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-        const nIdx = ny * w + nx;
-        if (grid[nIdx] === PATH && !visited.has(nIdx)) {
-          visited.add(nIdx);
-          queue.push(nIdx);
-        }
-      }
-    }
-  }
+  // BFS baglantilik
+  const visited = bfsConnected(grid, w, h, start.x, start.y);
 
   // Erisilemez PATH'leri duvar yap
   for (let y = 0; y < h; y++) {
@@ -341,13 +351,11 @@ function generateRoomMaze(
 }
 
 // ===== STRATEJI 3: Kafes Tabanlı (Grid Pattern) =====
-// Duzgun aralikli koridorlar + rastgele duvar acma/kapama
 function generateGridMaze(
   rng: () => number, w: number, h: number, config: DifficultyConfig
 ): { grid: number[]; startX: number; startY: number } | null {
   const grid = new Array(w * h).fill(WALL);
 
-  // Her 2 karoda bir koridor olustur (kafes deseni)
   const spacing = 2;
   for (let y = 1; y < h - 1; y += spacing) {
     for (let x = 1; x < w - 1; x++) {
@@ -360,18 +368,15 @@ function generateGridMaze(
     }
   }
 
-  // Rastgele bazi koridorlari kapat (labirent olustur)
   const removeChance = 0.35 + rng() * 0.15;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       if (grid[y * w + x] === PATH && rng() < removeChance) {
-        // Kapatmak guvenli mi? (cok fazla yol kesmemeli)
         grid[y * w + x] = WALL;
       }
     }
   }
 
-  // Baglantilik kontrolu
   const pathTiles: { x: number; y: number }[] = [];
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
@@ -383,26 +388,8 @@ function generateGridMaze(
 
   const start = pathTiles[Math.floor(rng() * pathTiles.length)];
 
-  // BFS baglantilik
-  const visited = new Set<number>();
-  const queue = [start.y * w + start.x];
-  visited.add(queue[0]);
-  while (queue.length > 0) {
-    const idx = queue.shift()!;
-    const x = idx % w, y = Math.floor(idx / w);
-    for (const { dx, dy } of DIR_VECTORS) {
-      const nx = x + dx, ny = y + dy;
-      if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-        const nIdx = ny * w + nx;
-        if (grid[nIdx] === PATH && !visited.has(nIdx)) {
-          visited.add(nIdx);
-          queue.push(nIdx);
-        }
-      }
-    }
-  }
+  const visited = bfsConnected(grid, w, h, start.x, start.y);
 
-  // Erisilemez alanlari kapat
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (grid[y * w + x] === PATH && !visited.has(y * w + x)) {
@@ -417,27 +404,215 @@ function generateGridMaze(
   return { grid, startX: start.x, startY: start.y };
 }
 
+// ===== AKIS MODU: Cikmaz olmayan rahatlatici labirent =====
+function generateRelaxingMaze(
+  rng: () => number, w: number, h: number, config: DifficultyConfig
+): { grid: number[]; startX: number; startY: number } | null {
+  const grid = new Array(w * h).fill(WALL);
+
+  const margin = 1;
+  // Ic alani tamamen ac
+  for (let y = margin; y < h - margin; y++) {
+    for (let x = margin; x < w - margin; x++) {
+      grid[y * w + x] = PATH;
+    }
+  }
+
+  // Dolu dikdortgen bloklar yerlestir (minimum 2x2)
+  const innerW = w - 2 * margin;
+  const innerH = h - 2 * margin;
+  const density = 0.25 + rng() * 0.15;
+  const targetWalls = Math.floor(innerW * innerH * density);
+
+  let wallsPlaced = 0;
+  for (let attempt = 0; attempt < targetWalls * 4 && wallsPlaced < targetWalls; attempt++) {
+    // Sadece 2x2, 2x3, 3x2, 3x3 bloklar
+    const blockTypes = [[2,2],[2,3],[3,2],[3,3],[2,4],[4,2]];
+    const [bw, bh] = blockTypes[Math.floor(rng() * blockTypes.length)];
+    const px = margin + Math.floor(rng() * (innerW - bw + 1));
+    const py = margin + Math.floor(rng() * (innerH - bh + 1));
+
+    if (px + bw > w - margin || py + bh > h - margin) continue;
+
+    // Tum karolar PATH mi kontrol et
+    let allPath = true;
+    const tiles: { x: number; y: number }[] = [];
+    for (let by = 0; by < bh; by++) {
+      for (let bx = 0; bx < bw; bx++) {
+        if (grid[(py + by) * w + (px + bx)] !== PATH) { allPath = false; break; }
+        tiles.push({ x: px + bx, y: py + by });
+      }
+      if (!allPath) break;
+    }
+    if (!allPath) continue;
+
+    // Blogu yerlestirdikten sonra baglantilik bozulmasin - gecici yerlestir ve kontrol et
+    for (const t of tiles) grid[t.y * w + t.x] = WALL;
+
+    // Hizli baglantilik kontrolu: bir PATH karosu bul ve BFS yap
+    let anyPath: { x: number; y: number } | null = null;
+    let totalPathCount = 0;
+    for (let y = margin; y < h - margin && !anyPath; y++) {
+      for (let x = margin; x < w - margin; x++) {
+        if (grid[y * w + x] === PATH) {
+          if (!anyPath) anyPath = { x, y };
+          totalPathCount++;
+        }
+      }
+    }
+    // totalPathCount'u tamamla
+    if (anyPath) {
+      for (let y = (anyPath.y); y < h - margin; y++) {
+        const startX2 = y === anyPath.y ? anyPath.x + 1 : margin;
+        for (let x = startX2; x < w - margin; x++) {
+          if (grid[y * w + x] === PATH) totalPathCount++;
+        }
+      }
+    }
+
+    if (!anyPath || totalPathCount < config.minMoves * 2) {
+      // Geri al
+      for (const t of tiles) grid[t.y * w + t.x] = PATH;
+      continue;
+    }
+
+    const visited = bfsConnected(grid, w, h, anyPath.x, anyPath.y);
+    if (visited.size < totalPathCount) {
+      // Baglantilik bozuldu, geri al
+      for (const t of tiles) grid[t.y * w + t.x] = PATH;
+      continue;
+    }
+
+    wallsPlaced += tiles.length;
+  }
+
+  // Her PATH karosu en az 2 yonde hareket edebilmeli (cikmaz yok)
+  let fixAttempts = 0;
+  while (fixAttempts < 100) {
+    let fixed = false;
+    for (let y = margin; y < h - margin; y++) {
+      for (let x = margin; x < w - margin; x++) {
+        if (grid[y * w + x] !== PATH) continue;
+        let moveCount = 0;
+        for (const { dx, dy } of DIR_VECTORS) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < w && ny >= 0 && ny < h && grid[ny * w + nx] !== WALL) {
+            moveCount++;
+          }
+        }
+        if (moveCount < 2) {
+          // Bu karo cikmaz - etrafindaki bir duvari ac
+          const wallNeighbors: { x: number; y: number }[] = [];
+          for (const { dx, dy } of DIR_VECTORS) {
+            const nx = x + dx, ny = y + dy;
+            if (nx >= margin && nx < w - margin && ny >= margin && ny < h - margin && grid[ny * w + nx] === WALL) {
+              wallNeighbors.push({ x: nx, y: ny });
+            }
+          }
+          if (wallNeighbors.length > 0) {
+            const toOpen = wallNeighbors[Math.floor(rng() * wallNeighbors.length)];
+            grid[toOpen.y * w + toOpen.x] = PATH;
+            fixed = true;
+          }
+        }
+      }
+    }
+    if (!fixed) break;
+    fixAttempts++;
+  }
+
+  // Baslangic noktasi sec
+  const pathTiles: { x: number; y: number }[] = [];
+  for (let y = margin; y < h - margin; y++) {
+    for (let x = margin; x < w - margin; x++) {
+      if (grid[y * w + x] === PATH) pathTiles.push({ x, y });
+    }
+  }
+
+  if (pathTiles.length < config.minMoves * 2) return null;
+
+  const start = pathTiles[Math.floor(rng() * pathTiles.length)];
+
+  // Son baglantilik kontrolu
+  const finalVisited = bfsConnected(grid, w, h, start.x, start.y);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (grid[y * w + x] === PATH && !finalVisited.has(y * w + x)) {
+        grid[y * w + x] = WALL;
+      }
+    }
+  }
+
+  return { grid, startX: start.x, startY: start.y };
+}
+
 // Ana labirent uretim fonksiyonu
 export function generateMaze(
   levelId: number,
-  config: DifficultyConfig
+  config: DifficultyConfig,
+  mode: GameMode = 'thinking'
 ): LevelData | null {
-  const rng = mulberry32(levelId * 7919 + 1337);
+  const seed = mode === 'thinking'
+    ? levelId * 7919 + 1337
+    : levelId * 6271 + 9001;
+  const rng = mulberry32(seed);
   const { gridSize, minMoves, maxMoves } = config;
   const w = gridSize, h = gridSize;
   const maxSolverDepth = maxMoves + 6;
+  const minJunctionMult = mode === 'thinking' ? 0.25 : 0.15;
 
   for (let attempt = 0; attempt < 150; attempt++) {
-    // Farkli stratejiler dongusel dene
-    const strategyRoll = rng();
     let result: { grid: number[]; startX: number; startY: number } | null = null;
 
-    if (strategyRoll < 0.35) {
-      result = generateBranchingMaze(rng, w, h, config);
-    } else if (strategyRoll < 0.70) {
-      result = generateRoomMaze(rng, w, h, config);
+    if (mode === 'relaxing') {
+      // Akis modu: cikmaz olmayan labirent
+      const strategyRoll = rng();
+      if (strategyRoll < 0.5) {
+        result = generateRelaxingMaze(rng, w, h, config);
+      } else {
+        // Room maze de relaxing icin uygun (acik alan)
+        result = generateRoomMaze(rng, w, h, config);
+        // Cikmaz kontrolu yap, varsa duvarlari ac
+        if (result) {
+          let hasDead = true;
+          let fixIter = 0;
+          while (hasDead && fixIter < 50) {
+            hasDead = false;
+            for (let y = 1; y < h - 1; y++) {
+              for (let x = 1; x < w - 1; x++) {
+                if (result.grid[y * w + x] !== PATH) continue;
+                let moveCount = 0;
+                for (const { dx: ddx, dy: ddy } of DIR_VECTORS) {
+                  const nx = x + ddx, ny = y + ddy;
+                  if (nx >= 0 && nx < w && ny >= 0 && ny < h && result.grid[ny * w + nx] !== WALL) moveCount++;
+                }
+                if (moveCount < 2) {
+                  // Cikmaz - bir duvar ac
+                  for (const { dx: ddx, dy: ddy } of shuffle(DIR_VECTORS, rng)) {
+                    const nx = x + ddx, ny = y + ddy;
+                    if (nx >= 1 && nx < w - 1 && ny >= 1 && ny < h - 1 && result.grid[ny * w + nx] === WALL) {
+                      result.grid[ny * w + nx] = PATH;
+                      hasDead = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            fixIter++;
+          }
+        }
+      }
     } else {
-      result = generateGridMaze(rng, w, h, config);
+      // Taktik modu: mevcut algoritma
+      const strategyRoll = rng();
+      if (strategyRoll < 0.35) {
+        result = generateBranchingMaze(rng, w, h, config);
+      } else if (strategyRoll < 0.70) {
+        result = generateRoomMaze(rng, w, h, config);
+      } else {
+        result = generateGridMaze(rng, w, h, config);
+      }
     }
 
     if (!result) continue;
@@ -453,7 +628,7 @@ export function generateMaze(
 
     // Kalite kontrolu: yeterli kavsak noktasi olsun
     const junctions = countJunctions(grid, w, h);
-    const minJunctions = Math.max(1, Math.floor(minMoves * 0.15));
+    const minJunctions = Math.max(1, Math.floor(minMoves * minJunctionMult));
     if (junctions < minJunctions) continue;
 
     // PATH sayisi kontrolu
@@ -472,6 +647,7 @@ export function generateMaze(
       colorIndex: (levelId - 1) % 10,
       solution,
       difficulty: config.name,
+      mode,
     };
   }
 

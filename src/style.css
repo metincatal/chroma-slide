@@ -70,6 +70,13 @@ html, body {
   margin-bottom: 28px;
 }
 
+.menu-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .btn {
   padding: 14px 44px;
   font-size: 18px;
@@ -94,6 +101,31 @@ html, body {
   color: #fff;
 }
 
+/* Mod butonlari */
+.btn-mode-thinking {
+  background: linear-gradient(135deg, #7c9eb8, #5a8aad);
+  box-shadow: 0 4px 16px rgba(90, 138, 173, 0.35);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.btn-mode-relaxing {
+  background: linear-gradient(135deg, #8dbd8d, #6aaa6a);
+  box-shadow: 0 4px 16px rgba(106, 170, 106, 0.35);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.mode-icon {
+  flex-shrink: 0;
+}
+
 /* Seviye Secim */
 .level-screen {
   display: flex;
@@ -107,7 +139,47 @@ html, body {
   font-size: 24px;
   font-weight: 700;
   color: #6a6058;
-  margin: 20px 0;
+  margin: 20px 0 10px;
+}
+
+/* Zorluk tab sistemi */
+.tier-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  max-width: 100%;
+  padding: 4px 8px;
+  margin-bottom: 10px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.tier-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tier-tab {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.05);
+  color: #6a6058;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+  letter-spacing: 0.5px;
+}
+
+.tier-tab:active {
+  transform: scale(0.95);
+}
+
+.tier-tab-active {
+  background: linear-gradient(135deg, #c4b498, #b8a888);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(180, 164, 136, 0.3);
 }
 
 .level-grid {
@@ -118,7 +190,7 @@ html, body {
   width: 100%;
   padding: 10px;
   overflow-y: auto;
-  max-height: calc(100% - 140px);
+  max-height: calc(100% - 160px);
   -webkit-overflow-scrolling: touch;
 }
 
@@ -236,10 +308,40 @@ html, body {
   align-items: center;
   justify-content: center;
   transition: background 0.15s;
+  position: relative;
 }
 
 .hud-btn:hover {
   background: rgba(0, 0, 0, 0.08);
+}
+
+/* Undo butonu */
+.hud-btn-undo {
+  position: relative;
+}
+
+.undo-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: linear-gradient(135deg, #7c9eb8, #5a8aad);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+/* Disabled buton stili */
+.hud-btn-disabled {
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 .progress-bar {

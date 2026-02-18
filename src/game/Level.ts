@@ -51,6 +51,23 @@ export class Level {
     return 1;
   }
 
+  unpaintTile(x: number, y: number): boolean {
+    const idx = y * this.data.width + x;
+    if (this.grid[idx] === PAINTED) {
+      this.grid[idx] = PATH;
+      this.paintedCount--;
+      this.paintAnimations.delete(`${x},${y}`);
+      return true;
+    }
+    return false;
+  }
+
+  unpaintTiles(tiles: { x: number; y: number }[]) {
+    for (const tile of tiles) {
+      this.unpaintTile(tile.x, tile.y);
+    }
+  }
+
   reset(): Level {
     return new Level(this.data);
   }

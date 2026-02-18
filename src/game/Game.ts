@@ -4,10 +4,18 @@ import { Ball } from './Ball';
 import { Level } from './Level';
 import { ScreenManager, Screen } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
-import { Direction, LEVEL_COLORS } from '../utils/constants';
+import { getUndoCount } from '../levels/procedural';
+import { Direction, GameMode, LEVEL_COLORS } from '../utils/constants';
 import { saveProgress, saveTheme, getSelectedTheme } from '../utils/storage';
 import { getThemeById, ThemeConfig } from '../utils/themes';
 import { playSlide, playComplete, playBump, resumeAudio } from '../utils/sound';
+
+interface UndoSnapshot {
+  ballX: number;
+  ballY: number;
+  paintedTiles: { x: number; y: number }[];
+  moveCount: number;
+}
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -22,10 +30,18 @@ export class Game {
   private animFrameId = 0;
   private lastTime = 0;
 
-  // Input queue - ardisik swipe destegi
+  // Input queue
   private moveQueue: Direction[] = [];
   private readonly MAX_QUEUE = 3;
   private levelCompleting = false;
+
+  // Mod sistemi
+  private currentMode: GameMode = 'thinking';
+
+  // Undo sistemi
+  private undoStack: UndoSnapshot[] = [];
+  private maxUndos = 5;
+  private remainingUndos = 5;
 
   constructor(canvas: HTMLCanvasElement, overlay: HTMLDivElement) {
     this.canvas = canvas;
@@ -35,11 +51,14 @@ export class Game {
     this.input.setEnabled(false);
 
     this.screenManager = new ScreenManager(overlay, getTotalLevels(), {
-      onPlay: () => this.showScreen('levels'),
+      onSelectMode: (mode) => {
+        this.currentMode = mode;
+        this.showScreen('levels', { mode });
+      },
       onSelectLevel: (id) => this.startLevel(id),
       onBack: () => {
         if (this.screen === 'game') {
-          this.showScreen('levels');
+          this.showScreen('levels', { mode: this.currentMode });
         } else if (this.screen === 'themes') {
           this.showScreen('menu');
         } else {
@@ -51,10 +70,11 @@ export class Game {
           this.startLevel(this.currentLevel.data.id);
         }
       },
+      onUndo: () => this.undo(),
       onScreenshot: () => this.takeScreenshot(),
       onShowThemes: () => this.showScreen('themes'),
       onSelectTheme: (theme) => this.applyTheme(theme),
-    });
+    }, this.currentMode);
 
     // Baslangicta kayitli temayi yukle
     const savedTheme = getThemeById(getSelectedTheme());
@@ -82,18 +102,17 @@ export class Game {
       this.renderer.clear();
     }
 
-    this.screenManager.show(screen, data);
+    this.screenManager.show(screen, { ...data, mode: this.currentMode });
   }
 
   private async applyTheme(theme: ThemeConfig) {
     saveTheme(theme.id);
     await this.renderer.setTheme(theme);
-    // Tema secim ekranini yeniden goster (aktif badge guncellenmesi icin)
     this.showScreen('themes');
   }
 
   private startLevel(levelId: number) {
-    const levelData = getLevelById(levelId);
+    const levelData = getLevelById(levelId, this.currentMode);
     if (!levelData) return;
 
     this.currentLevel = new Level(levelData);
@@ -102,9 +121,17 @@ export class Game {
     this.moveQueue = [];
     this.levelCompleting = false;
 
+    // Undo sistemi sifirla
+    this.undoStack = [];
+    this.maxUndos = getUndoCount(levelId, this.currentMode);
+    this.remainingUndos = this.maxUndos;
+
     this.showScreen('game', {
       levelId,
       progress: this.currentLevel.getProgress(),
+      mode: this.currentMode,
+      remainingUndos: this.remainingUndos,
+      maxUndos: this.maxUndos,
     });
   }
 
@@ -114,7 +141,6 @@ export class Game {
 
     resumeAudio();
 
-    // Top hareket halindeyse kuyruga ekle
     if (this.ball.animating) {
       if (this.moveQueue.length < this.MAX_QUEUE) {
         this.moveQueue.push(direction);
@@ -138,7 +164,6 @@ export class Game {
     if (!result) {
       playBump();
       this.renderer.triggerShake();
-      // Kuyrukta sonraki hamleyi dene
       if (this.moveQueue.length > 0) {
         const next = this.moveQueue.shift()!;
         this.executeMove(next);
@@ -146,10 +171,52 @@ export class Game {
       return;
     }
 
+    // Undo snapshot: hamle oncesi durumu kaydet
+    const newPaintedTiles: { x: number; y: number }[] = [];
+    for (const t of result.path) {
+      const idx = t.y * this.currentLevel.data.width + t.x;
+      if (this.currentLevel.grid[idx] !== 2) { // PAINTED degil
+        newPaintedTiles.push({ x: t.x, y: t.y });
+      }
+    }
+
+    this.undoStack.push({
+      ballX: this.ball.x,
+      ballY: this.ball.y,
+      paintedTiles: newPaintedTiles,
+      moveCount: this.moves,
+    });
+
     this.moves++;
     playSlide();
     this.ball.startSlide(result);
     this.screenManager.updateHUD(this.currentLevel.getProgress());
+  }
+
+  private undo() {
+    if (!this.currentLevel || !this.ball) return;
+    if (this.ball.animating) return;
+    if (this.undoStack.length === 0) return;
+    if (this.remainingUndos <= 0) return;
+    if (this.levelCompleting) return;
+
+    const snapshot = this.undoStack.pop()!;
+    this.remainingUndos--;
+
+    // Ball pozisyonunu geri al
+    this.ball.reset(snapshot.ballX, snapshot.ballY);
+
+    // Boyanan karolari geri al
+    this.currentLevel.unpaintTiles(snapshot.paintedTiles);
+
+    // Hamle sayacini geri al
+    this.moves = snapshot.moveCount;
+
+    // HUD guncelle
+    this.screenManager.updateHUD(this.currentLevel.getProgress(), this.remainingUndos);
+
+    // Static layer invalidate (boyalar degisti)
+    this.renderer.invalidateStatic();
   }
 
   private loop = (time: number) => {
@@ -173,12 +240,10 @@ export class Game {
       this.screenManager.updateHUD(this.currentLevel.getProgress());
     }
 
-    // Animasyon bitti
     if (!this.ball.animating && paintedTiles) {
       if (this.currentLevel.isComplete()) {
         this.onLevelComplete();
       } else if (this.moveQueue.length > 0) {
-        // Kuyruktan sonraki hamleyi calistir
         const next = this.moveQueue.shift()!;
         this.executeMove(next);
       }
@@ -201,18 +266,17 @@ export class Game {
     const stars = level.calculateStars(this.moves);
     const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
 
-    saveProgress(level.data.id, stars, this.moves);
+    saveProgress(level.data.id, stars, this.moves, this.currentMode);
     playComplete();
     this.renderer.startConfetti(LEVEL_COLORS[colorIdx]);
 
-    // Otomatik sonraki seviyeye gecis
     const nextId = level.data.id + 1;
     setTimeout(() => {
       this.renderer.stopConfetti();
       if (nextId <= getTotalLevels()) {
         this.startLevel(nextId);
       } else {
-        this.showScreen('levels');
+        this.showScreen('levels', { mode: this.currentMode });
       }
     }, 1200);
   }
@@ -222,7 +286,6 @@ export class Game {
       const dataUrl = this.canvas.toDataURL('image/png');
       const blob = await (await fetch(dataUrl)).blob();
 
-      // Mobilde share API'yi dene (galeri kaydi icin)
       if (navigator.share && navigator.canShare) {
         const file = new File([blob], `chromaslide-level.png`, { type: 'image/png' });
         const shareData = { files: [file] };
@@ -232,7 +295,6 @@ export class Game {
         }
       }
 
-      // Fallback: dosya indirme
       const link = document.createElement('a');
       link.href = dataUrl;
       link.download = `chromaslide-screenshot.png`;

@@ -68,7 +68,6 @@ export class Renderer {
   }
 
   async setTheme(theme: ThemeConfig) {
-    // Ayni temayi tekrar yukleme
     if (this.currentThemeId === theme.id && this.texturesLoaded) return;
 
     this.boardColor = theme.boardColor;
@@ -77,7 +76,7 @@ export class Renderer {
     this.texturesLoaded = false;
     this.texBoard = null;
     this.texPath = null;
-    this.staticLevelId = -1; // Statik cache'i invalidate et
+    this.staticLevelId = -1;
 
     try {
       const [board, path] = await Promise.all([
@@ -87,7 +86,7 @@ export class Renderer {
       this.texBoard = board;
       this.texPath = path;
       this.texturesLoaded = true;
-      this.staticLevelId = -1; // Yeniden build et
+      this.staticLevelId = -1;
     } catch (e) {
       console.warn('Texture yuklenemedi, fallback renkler kullaniliyor:', e);
     }
@@ -104,12 +103,15 @@ export class Renderer {
     this.drawBg(this.ctx);
   }
 
+  invalidateStatic() {
+    this.staticLevelId = -1;
+  }
+
   triggerShake() {
     this.shakeStart = performance.now();
     this.shakeActive = true;
   }
 
-  // --- Arka plan (duz renk, texture yok) ---
   private drawBg(ctx: CanvasRenderingContext2D) {
     ctx.fillStyle = COLORS.BACKGROUND;
     ctx.fillRect(0, 0, this.width, this.height);
@@ -158,6 +160,48 @@ export class Renderer {
       (!ip(gx + 1, gy) && !ip(gx, gy + 1)) ? r : 0,
       (!ip(gx - 1, gy) && !ip(gx, gy + 1)) ? r : 0,
     ];
+  }
+
+  // --- Boyali karo kose yuvarlama: duvara bitisik koselerde boardR kullan ---
+  private getPaintedCorners(
+    gx: number, gy: number, gw: number, gh: number, grid: number[],
+    pathR: number, boardR: number
+  ): [number, number, number, number] {
+    const isPath = (x: number, y: number) =>
+      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
+
+    // Her kose icin: her iki komsu da PATH degilse (duvara bitisik kose) → boardR, degilse 0
+    const corners: [number, number, number, number] = [0, 0, 0, 0];
+
+    // Sol-ust kose
+    if (!isPath(gx - 1, gy) && !isPath(gx, gy - 1)) {
+      corners[0] = boardR;
+    } else if (!isPath(gx - 1, gy) || !isPath(gx, gy - 1)) {
+      corners[0] = pathR;
+    }
+
+    // Sag-ust kose
+    if (!isPath(gx + 1, gy) && !isPath(gx, gy - 1)) {
+      corners[1] = boardR;
+    } else if (!isPath(gx + 1, gy) || !isPath(gx, gy - 1)) {
+      corners[1] = pathR;
+    }
+
+    // Sag-alt kose
+    if (!isPath(gx + 1, gy) && !isPath(gx, gy + 1)) {
+      corners[2] = boardR;
+    } else if (!isPath(gx + 1, gy) || !isPath(gx, gy + 1)) {
+      corners[2] = pathR;
+    }
+
+    // Sol-alt kose
+    if (!isPath(gx - 1, gy) && !isPath(gx, gy + 1)) {
+      corners[3] = boardR;
+    } else if (!isPath(gx - 1, gy) || !isPath(gx, gy + 1)) {
+      corners[3] = pathR;
+    }
+
+    return corners;
   }
 
   // --- Secici kose yuvarlama: board karolari ---
@@ -218,11 +262,10 @@ export class Renderer {
     const boardR = Math.max(3, s * 0.28);
     const pathR = Math.max(3, s * 0.38);
     const exterior = this.computeExterior(level);
-    const e = 0.25; // anti-alias overlap
+    const e = 0.25;
 
     this.drawBg(sCtx);
 
-    // Fill stilleri - texture varsa pattern, yoksa fallback renk
     let boardFill: string | CanvasPattern = this.boardColor;
     if (this.texturesLoaded && this.texBoard) {
       const p = sCtx.createPattern(this.texBoard, 'repeat');
@@ -243,7 +286,6 @@ export class Renderer {
         const [tl, tr, br, bl] = this.getBoardCorners(x, y, gw, gh, grid, exterior, boardR);
         sCtx.fillStyle = boardFill;
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
-        // Hafif overlay
         sCtx.fillStyle = 'rgba(200, 220, 240, 0.08)';
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
       }
@@ -258,10 +300,8 @@ export class Renderer {
         const [tl, tr, br, bl] = this.getPathCorners(x, y, gw, gh, grid, pathR);
         sCtx.fillStyle = pathFill;
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
-        // Hafif beyaz overlay
         sCtx.fillStyle = 'rgba(255, 255, 255, 0.15)';
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
-        // Ic golgeler
         this.drawShadows(sCtx, px, py, x, y, gw, gh, grid, exterior, s);
       }
     }
@@ -311,21 +351,36 @@ export class Renderer {
 
     if (this.staticLevelId !== level.data.id) this.buildStaticLayer(level);
 
-    // Sarsinti hesapla
+    // Gelismis sarsinti hesapla
     let sx = 0, sy = 0;
+    let scaleVal = 1;
     if (this.shakeActive) {
       const elapsed = performance.now() - this.shakeStart;
-      if (elapsed > 200) {
+      if (elapsed > 280) {
         this.shakeActive = false;
       } else {
-        const t = elapsed / 200;
-        const amp = 5 * (1 - t);
-        sx = Math.sin(t * Math.PI * 6) * amp;
-        sy = Math.cos(t * Math.PI * 4) * amp * 0.5;
+        const t = elapsed / 280;
+        const amp = 6 * (1 - t) * (1 - t); // Kare azalma
+        sx = Math.sin(t * Math.PI * 8) * amp; // 8Hz X
+        sy = Math.cos(t * Math.PI * 6) * amp * 0.5; // 6Hz Y
+        // Scale bounce: ilk %35'te hafif buyume
+        if (t < 0.35) {
+          scaleVal = 1.0 + 0.012 * Math.sin((t / 0.35) * Math.PI);
+        }
       }
     }
 
     ctx.save();
+
+    // Scale bounce uygula (canvas merkezinden)
+    if (scaleVal !== 1) {
+      const cx = this.width / 2;
+      const cy = this.height / 2;
+      ctx.translate(cx, cy);
+      ctx.scale(scaleVal, scaleVal);
+      ctx.translate(-cx, -cy);
+    }
+
     ctx.translate(sx, sy);
 
     // 1. Statik katman
@@ -337,6 +392,7 @@ export class Renderer {
     const paintColor = LEVEL_COLORS[colorIdx];
     const s = this.cellSize;
     const pathR = Math.max(3, s * 0.38);
+    const boardR = Math.max(3, s * 0.28);
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
@@ -349,7 +405,12 @@ export class Renderer {
         const eased = this.easeOutBack(animT);
         const cx = px + s / 2, cy = py + s / 2;
         const sw = s * eased, sh = s * eased;
-        const [tl, tr, br, bl] = this.getPathCorners(x, y, gw, gh, level.data.grid, pathR * eased);
+
+        // Boyali karo koseleri: duvara bitisik koselerde boardR kullan
+        const [tl, tr, br, bl] = this.getPaintedCorners(
+          x, y, gw, gh, level.data.grid,
+          pathR * eased, boardR * eased
+        );
 
         ctx.fillStyle = paintColor;
         ctx.globalAlpha = 0.35 + 0.65 * animT;
@@ -365,7 +426,7 @@ export class Renderer {
       }
     }
 
-    // 3. Parcacik izi
+    // 3. Parcacik izi (gelismis surtunme parcaciklari)
     this.updateTrail(ctx, ball, paintColor);
 
     // 4. Top
@@ -377,29 +438,46 @@ export class Renderer {
     ctx.restore();
   }
 
-  // --- Parcacik izi sistemi ---
+  // --- Gelismis parcacik izi sistemi ---
   private updateTrail(ctx: CanvasRenderingContext2D, ball: Ball, color: string) {
     const s = this.cellSize;
     const bx = this.offsetX + (ball.displayX + 0.5) * s;
     const by = this.offsetY + (ball.displayY + 0.5) * s;
 
-    // Yeni parcaciklar olustur
     if (ball.animating && this.lastBallPx >= 0) {
       const dx = bx - this.lastBallPx;
       const dy = by - this.lastBallPy;
-      if (Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3) {
+      const speed = Math.sqrt(dx * dx + dy * dy);
+
+      if (speed > 0.3) {
         const r = BALL_RADIUS * (s / 60);
-        for (let i = 0; i < 2; i++) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = r * 0.6 + Math.random() * r * 0.4;
+        // Parcacik sayisi hiza orantili: 2-5 arasi
+        const count = Math.min(5, 2 + Math.floor(speed / 3));
+        // Hareket yonunun tersi acisi
+        const moveAngle = Math.atan2(dy, dx);
+        const reverseAngle = moveAngle + Math.PI;
+
+        for (let i = 0; i < count; i++) {
+          // 120 derece koni icinde dagilim (surtunme hissi)
+          const coneSpread = (Math.PI * 2) / 3; // 120 derece
+          const angle = reverseAngle + (Math.random() - 0.5) * coneSpread;
+
+          // Topun arka kenarindan spawn
+          const spawnDist = r * 0.7 + Math.random() * r * 0.3;
+          const spawnX = bx + Math.cos(reverseAngle) * spawnDist * 0.5 + (Math.random() - 0.5) * r * 0.5;
+          const spawnY = by + Math.sin(reverseAngle) * spawnDist * 0.5 + (Math.random() - 0.5) * r * 0.5;
+
+          const isDust = Math.random() < 0.65; // %65 toz, %35 renkli
+          const particleSpeed = 0.3 + Math.random() * 0.8;
+
           this.trailParticles.push({
-            x: bx + Math.cos(angle) * dist,
-            y: by + Math.sin(angle) * dist,
-            vx: -dx * 0.015 + (Math.random() - 0.5) * 0.8,
-            vy: -dy * 0.015 + (Math.random() - 0.5) * 0.8,
-            size: 1 + Math.random() * 2.5,
+            x: spawnX,
+            y: spawnY,
+            vx: Math.cos(angle) * particleSpeed,
+            vy: Math.sin(angle) * particleSpeed,
+            size: isDust ? 1 + Math.random() * 1.8 : 1.5 + Math.random() * 3,
             life: 1,
-            color: Math.random() > 0.5 ? color : 'rgba(255,255,255,0.7)',
+            color: isDust ? 'rgba(210,200,185,0.7)' : color,
           });
         }
       }
@@ -413,9 +491,9 @@ export class Renderer {
       const p = this.trailParticles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.vx *= 0.96;
-      p.vy *= 0.96;
-      p.life -= 0.03;
+      p.vx *= 0.94; // Daha hizli surtunme
+      p.vy *= 0.94;
+      p.life -= 0.035; // Daha hizli sonme
       if (p.life <= 0) continue;
 
       ctx.globalAlpha = p.life * 0.6;

@@ -13,6 +13,9 @@ export const DIRECTIONS = {
 
 export type Direction = keyof typeof DIRECTIONS;
 
+// Oyun modlari
+export type GameMode = 'thinking' | 'relaxing';
+
 // Renkler - açık, aydınlık palet
 export const COLORS = {
   BACKGROUND: '#f0ece6',

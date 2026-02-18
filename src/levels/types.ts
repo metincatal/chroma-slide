@@ -1,4 +1,4 @@
-import { Direction } from '../utils/constants';
+import { Direction, GameMode } from '../utils/constants';
 
 export interface LevelData {
   id: number;
@@ -18,4 +18,6 @@ export interface LevelData {
   solution?: Direction[];
   // Zorluk seviyesi
   difficulty?: string;
+  // Oyun modu
+  mode?: GameMode;
 }
