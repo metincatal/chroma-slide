@@ -30,7 +30,7 @@ export class Renderer {
   private confetti: Confetti[] = [];
   private confettiActive = false;
 
-  // Dis alan cache (numeric key = y*w+x, string Set yerine)
+  // Exterior cache
   private exteriorCache: Set<number> | null = null;
   private cachedLevelId = -1;
 
@@ -40,12 +40,21 @@ export class Renderer {
   private texBg: HTMLImageElement | null = null;
   private texturesLoaded = false;
 
-  // Statik katman cache - board + bos path + golge onceden cizilir
+  // Statik katman cache
   private staticCanvas: HTMLCanvasElement | null = null;
   private staticCtx: CanvasRenderingContext2D | null = null;
   private staticLevelId = -1;
   private staticW = 0;
   private staticH = 0;
+
+  // Parcacik izi
+  private trailParticles: TrailParticle[] = [];
+  private lastBallPx = -1;
+  private lastBallPy = -1;
+
+  // Sarsinti efekti
+  private shakeStart = 0;
+  private shakeActive = false;
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -82,12 +91,9 @@ export class Renderer {
     this.drawBg(this.ctx);
   }
 
-  calculateLayout(gridWidth: number, gridHeight: number) {
-    const maxCellW = (this.width * 0.88) / gridWidth;
-    const maxCellH = (this.height * 0.7) / gridHeight;
-    this.cellSize = Math.floor(Math.min(maxCellW, maxCellH));
-    this.offsetX = Math.floor((this.width - gridWidth * this.cellSize) / 2);
-    this.offsetY = Math.floor((this.height - gridHeight * this.cellSize) / 2) + 30 * this.dpr;
+  triggerShake() {
+    this.shakeStart = performance.now();
+    this.shakeActive = true;
   }
 
   // --- Arka plan ---
@@ -106,24 +112,27 @@ export class Renderer {
     ctx.fillRect(0, 0, this.width, this.height);
   }
 
-  // --- Exterior hesapla (numeric Set - GC dostu) ---
+  calculateLayout(gridWidth: number, gridHeight: number) {
+    const maxCellW = (this.width * 0.88) / gridWidth;
+    const maxCellH = (this.height * 0.7) / gridHeight;
+    this.cellSize = Math.floor(Math.min(maxCellW, maxCellH));
+    this.offsetX = Math.floor((this.width - gridWidth * this.cellSize) / 2);
+    this.offsetY = Math.floor((this.height - gridHeight * this.cellSize) / 2) + 30 * this.dpr;
+  }
+
+  // --- Exterior ---
   private computeExterior(level: Level): Set<number> {
-    if (this.exteriorCache && this.cachedLevelId === level.data.id) {
-      return this.exteriorCache;
-    }
+    if (this.exteriorCache && this.cachedLevelId === level.data.id) return this.exteriorCache;
     const { width: gw, height: gh } = level.data;
     const exterior = new Set<number>();
-    const offsets = [-1, 0, 1, 0, -1, -1, 1, -1, -1, 1, 1, 1, 0, -1, 0, 1];
-
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.data.grid[y * gw + x] !== WALL) continue;
         let adj = false;
-        for (let i = 0; i < 16; i += 2) {
-          const nx = x + offsets[i], ny = y + offsets[i + 1];
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+          const nx = x + dx, ny = y + dy;
           if (nx >= 0 && nx < gw && ny >= 0 && ny < gh && level.data.grid[ny * gw + nx] === PATH) {
-            adj = true;
-            break;
+            adj = true; break;
           }
         }
         if (!adj) exterior.add(y * gw + x);
@@ -134,7 +143,62 @@ export class Renderer {
     return exterior;
   }
 
-  // --- Statik katman olustur (level basina 1 kez) ---
+  // --- Secici kose yuvarlama: path karolari ---
+  private getPathCorners(
+    gx: number, gy: number, gw: number, gh: number, grid: number[], r: number
+  ): [number, number, number, number] {
+    const ip = (x: number, y: number) =>
+      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
+    return [
+      (!ip(gx - 1, gy) && !ip(gx, gy - 1)) ? r : 0,
+      (!ip(gx + 1, gy) && !ip(gx, gy - 1)) ? r : 0,
+      (!ip(gx + 1, gy) && !ip(gx, gy + 1)) ? r : 0,
+      (!ip(gx - 1, gy) && !ip(gx, gy + 1)) ? r : 0,
+    ];
+  }
+
+  // --- Secici kose yuvarlama: board karolari ---
+  private getBoardCorners(
+    gx: number, gy: number, gw: number, gh: number, grid: number[],
+    exterior: Set<number>, r: number
+  ): [number, number, number, number] {
+    const ib = (x: number, y: number) =>
+      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === WALL && !exterior.has(y * gw + x);
+    const ip = (x: number, y: number) =>
+      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
+    return [
+      (!ib(gx - 1, gy) && !ib(gx, gy - 1) && !ip(gx - 1, gy - 1)) ? r : 0,
+      (!ib(gx + 1, gy) && !ib(gx, gy - 1) && !ip(gx + 1, gy - 1)) ? r : 0,
+      (!ib(gx + 1, gy) && !ib(gx, gy + 1) && !ip(gx + 1, gy + 1)) ? r : 0,
+      (!ib(gx - 1, gy) && !ib(gx, gy + 1) && !ip(gx - 1, gy + 1)) ? r : 0,
+    ];
+  }
+
+  // --- Secici yuvarlak dikdortgen ---
+  private fillSelectiveRound(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number,
+    tl: number, tr: number, br: number, bl: number
+  ) {
+    if (tl === 0 && tr === 0 && br === 0 && bl === 0) {
+      ctx.fillRect(x, y, w, h);
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(x + tl, y);
+    if (tr > 0) { ctx.lineTo(x + w - tr, y); ctx.arcTo(x + w, y, x + w, y + tr, tr); }
+    else ctx.lineTo(x + w, y);
+    if (br > 0) { ctx.lineTo(x + w, y + h - br); ctx.arcTo(x + w, y + h, x + w - br, y + h, br); }
+    else ctx.lineTo(x + w, y + h);
+    if (bl > 0) { ctx.lineTo(x + bl, y + h); ctx.arcTo(x, y + h, x, y + h - bl, bl); }
+    else ctx.lineTo(x, y + h);
+    if (tl > 0) { ctx.lineTo(x, y + tl); ctx.arcTo(x, y, x + tl, y, tl); }
+    else ctx.lineTo(x, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // --- Statik katman olustur ---
   private buildStaticLayer(level: Level) {
     if (!this.staticCanvas || this.staticW !== this.width || this.staticH !== this.height) {
       this.staticCanvas = document.createElement('canvas');
@@ -148,49 +212,44 @@ export class Renderer {
     const sCtx = this.staticCtx!;
     const { width: gw, height: gh, grid } = level.data;
     const s = this.cellSize;
-    const boardR = Math.max(2, s * 0.12);
-    const pathR = Math.max(2, s * 0.10);
+    const boardR = Math.max(3, s * 0.28);
+    const pathR = Math.max(3, s * 0.38);
     const exterior = this.computeExterior(level);
+    const e = 0.25; // anti-alias overlap
 
-    // Arka plan
     this.drawBg(sCtx);
 
-    // Board ve path fill stilleri
+    // Fill stilleri
     let boardFill: string | CanvasPattern = COLORS.BOARD_LIGHT;
-    if (this.texBoard) {
-      const p = sCtx.createPattern(this.texBoard, 'repeat');
-      if (p) boardFill = p;
-    }
+    if (this.texBoard) { const p = sCtx.createPattern(this.texBoard, 'repeat'); if (p) boardFill = p; }
     let pathFill: string | CanvasPattern = COLORS.PATH;
-    if (this.texPath) {
-      const p = sCtx.createPattern(this.texPath, 'repeat');
-      if (p) pathFill = p;
-    }
+    if (this.texPath) { const p = sCtx.createPattern(this.texPath, 'repeat'); if (p) pathFill = p; }
 
-    // Board karolari (duvarlar)
+    // Board karolari
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
-        if (grid[y * gw + x] !== WALL) continue;
-        if (exterior.has(y * gw + x)) continue;
+        if (grid[y * gw + x] !== WALL || exterior.has(y * gw + x)) continue;
         const px = this.offsetX + x * s;
         const py = this.offsetY + y * s;
+        const [tl, tr, br, bl] = this.getBoardCorners(x, y, gw, gh, grid, exterior, boardR);
         sCtx.fillStyle = boardFill;
-        this.fillRoundRect(sCtx, px - 0.5, py - 0.5, s + 1, s + 1, boardR);
+        this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
         sCtx.fillStyle = 'rgba(200, 220, 240, 0.12)';
-        this.fillRoundRect(sCtx, px - 0.5, py - 0.5, s + 1, s + 1, boardR);
+        this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
       }
     }
 
-    // Path karolari (kanallar)
+    // Path karolari
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (grid[y * gw + x] !== PATH) continue;
         const px = this.offsetX + x * s;
         const py = this.offsetY + y * s;
+        const [tl, tr, br, bl] = this.getPathCorners(x, y, gw, gh, grid, pathR);
         sCtx.fillStyle = pathFill;
-        this.fillRoundRect(sCtx, px - 0.5, py - 0.5, s + 1, s + 1, pathR);
+        this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
         sCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-        this.fillRoundRect(sCtx, px - 0.5, py - 0.5, s + 1, s + 1, pathR);
+        this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
         // Ic golgeler
         this.drawShadows(sCtx, px, py, x, y, gw, gh, grid, exterior, s);
       }
@@ -199,132 +258,166 @@ export class Renderer {
     this.staticLevelId = level.data.id;
   }
 
-  // --- Ic golgeler (statik katmana onceden cizilir) ---
+  // --- Ic golgeler ---
   private drawShadows(
-    ctx: CanvasRenderingContext2D,
-    px: number, py: number,
-    gx: number, gy: number,
-    gw: number, gh: number,
-    grid: number[],
-    exterior: Set<number>,
-    s: number
+    ctx: CanvasRenderingContext2D, px: number, py: number,
+    gx: number, gy: number, gw: number, gh: number,
+    grid: number[], exterior: Set<number>, s: number
   ) {
     const sh = Math.max(3, s * 0.08);
-    const sides: [number, number, number][] = [
-      [0, -1, 0], // top
-      [0, 1, 1],  // bottom
-      [-1, 0, 2], // left
-      [1, 0, 3],  // right
-    ];
-
-    for (const [dx, dy, side] of sides) {
+    for (const [dx, dy, side] of [[0,-1,0],[0,1,1],[-1,0,2],[1,0,3]] as [number,number,number][]) {
       const nx = gx + dx, ny = gy + dy;
       const isWall = nx < 0 || nx >= gw || ny < 0 || ny >= gh ||
         (grid[ny * gw + nx] === WALL && !exterior.has(ny * gw + nx));
       if (!isWall) continue;
-
       let grad: CanvasGradient;
+      const a = [0.20, 0.10, 0.16, 0.08][side];
       if (side === 0) {
         grad = ctx.createLinearGradient(px, py, px, py + sh);
-        grad.addColorStop(0, 'rgba(100,140,180,0.20)');
-        grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(px, py, s, sh);
+        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
+        ctx.fillStyle = grad; ctx.fillRect(px, py, s, sh);
       } else if (side === 1) {
         grad = ctx.createLinearGradient(px, py + s, px, py + s - sh);
-        grad.addColorStop(0, 'rgba(100,140,180,0.10)');
-        grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(px, py + s - sh, s, sh);
+        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
+        ctx.fillStyle = grad; ctx.fillRect(px, py + s - sh, s, sh);
       } else if (side === 2) {
         grad = ctx.createLinearGradient(px, py, px + sh, py);
-        grad.addColorStop(0, 'rgba(100,140,180,0.16)');
-        grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(px, py, sh, s);
+        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
+        ctx.fillStyle = grad; ctx.fillRect(px, py, sh, s);
       } else {
         grad = ctx.createLinearGradient(px + s, py, px + s - sh, py);
-        grad.addColorStop(0, 'rgba(100,140,180,0.08)');
-        grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(px + s - sh, py, sh, s);
+        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
+        ctx.fillStyle = grad; ctx.fillRect(px + s - sh, py, sh, s);
       }
     }
   }
 
-  // --- Ana render (her frame) ---
+  // --- Ana render ---
   render(level: Level, ball: Ball) {
     const ctx = this.ctx;
     const { width: gw, height: gh } = level.data;
     this.calculateLayout(gw, gh);
 
-    // Statik cache olustur (level basina 1 kez)
-    if (this.staticLevelId !== level.data.id) {
-      this.buildStaticLayer(level);
+    if (this.staticLevelId !== level.data.id) this.buildStaticLayer(level);
+
+    // Sarsinti hesapla
+    let sx = 0, sy = 0;
+    if (this.shakeActive) {
+      const elapsed = performance.now() - this.shakeStart;
+      if (elapsed > 200) {
+        this.shakeActive = false;
+      } else {
+        const t = elapsed / 200;
+        const amp = 5 * (1 - t);
+        sx = Math.sin(t * Math.PI * 6) * amp;
+        sy = Math.cos(t * Math.PI * 4) * amp * 0.5;
+      }
     }
 
-    // 1. Statik katman (tek drawImage - cok hizli)
-    if (this.staticCanvas) {
-      ctx.drawImage(this.staticCanvas, 0, 0);
-    } else {
-      ctx.fillStyle = COLORS.BACKGROUND;
-      ctx.fillRect(0, 0, this.width, this.height);
-    }
+    ctx.save();
+    ctx.translate(sx, sy);
 
-    // 2. Boyali karolar (dinamik)
+    // 1. Statik katman
+    if (this.staticCanvas) ctx.drawImage(this.staticCanvas, 0, 0);
+
+    // 2. Boyali karolar
     const now = performance.now();
     const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
     const paintColor = LEVEL_COLORS[colorIdx];
     const s = this.cellSize;
-    const pathR = Math.max(2, s * 0.10);
+    const pathR = Math.max(3, s * 0.38);
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.grid[y * gw + x] !== PAINTED) continue;
-
         const px = this.offsetX + x * s;
         const py = this.offsetY + y * s;
         const animKey = `${x},${y}`;
         const animStart = level.paintAnimations.get(animKey);
         const animT = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
-
         const eased = this.easeOutBack(animT);
         const cx = px + s / 2, cy = py + s / 2;
         const sw = s * eased, sh = s * eased;
+        const [tl, tr, br, bl] = this.getPathCorners(x, y, gw, gh, level.data.grid, pathR * eased);
 
         ctx.fillStyle = paintColor;
         ctx.globalAlpha = 0.35 + 0.65 * animT;
-        this.fillRoundRect(ctx, cx - sw / 2, cy - sh / 2, sw, sh, pathR * eased);
+        this.fillSelectiveRound(ctx, cx - sw / 2, cy - sh / 2, sw, sh, tl, tr, br, bl);
         ctx.globalAlpha = 1;
 
         if (animT < 1) {
           ctx.fillStyle = '#fff';
           ctx.globalAlpha = (1 - animT) * 0.3;
-          this.fillRoundRect(ctx, cx - sw / 2, cy - sh / 2, sw, sh, pathR * eased);
+          this.fillSelectiveRound(ctx, cx - sw / 2, cy - sh / 2, sw, sh, tl, tr, br, bl);
           ctx.globalAlpha = 1;
         }
       }
     }
 
-    // 3. Top
+    // 3. Parcacik izi
+    this.updateTrail(ctx, ball, paintColor);
+
+    // 4. Top
     this.drawBall(ball, paintColor);
 
-    // 4. Konfeti
+    // 5. Konfeti
     if (this.confettiActive) this.updateConfetti();
+
+    ctx.restore();
   }
 
-  // --- Yuvarlak dikdortgen cizimi ---
-  private fillRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-    r = Math.min(r, w / 2, h / 2);
-    if (r < 1) { ctx.fillRect(x, y, w, h); return; }
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-    ctx.fill();
+  // --- Parcacik izi sistemi ---
+  private updateTrail(ctx: CanvasRenderingContext2D, ball: Ball, color: string) {
+    const s = this.cellSize;
+    const bx = this.offsetX + (ball.displayX + 0.5) * s;
+    const by = this.offsetY + (ball.displayY + 0.5) * s;
+
+    // Yeni parcaciklar olustur
+    if (ball.animating && this.lastBallPx >= 0) {
+      const dx = bx - this.lastBallPx;
+      const dy = by - this.lastBallPy;
+      if (Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3) {
+        const r = BALL_RADIUS * (s / 60);
+        for (let i = 0; i < 2; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = r * 0.6 + Math.random() * r * 0.4;
+          this.trailParticles.push({
+            x: bx + Math.cos(angle) * dist,
+            y: by + Math.sin(angle) * dist,
+            vx: -dx * 0.015 + (Math.random() - 0.5) * 0.8,
+            vy: -dy * 0.015 + (Math.random() - 0.5) * 0.8,
+            size: 1 + Math.random() * 2.5,
+            life: 1,
+            color: Math.random() > 0.5 ? color : 'rgba(255,255,255,0.7)',
+          });
+        }
+      }
+    }
+    this.lastBallPx = ball.animating ? bx : -1;
+    this.lastBallPy = ball.animating ? by : -1;
+
+    // Guncelle ve ciz
+    let alive = 0;
+    for (let i = 0; i < this.trailParticles.length; i++) {
+      const p = this.trailParticles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.96;
+      p.vy *= 0.96;
+      p.life -= 0.03;
+      if (p.life <= 0) continue;
+
+      ctx.globalAlpha = p.life * 0.6;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (alive !== i) this.trailParticles[alive] = p;
+      alive++;
+    }
+    ctx.globalAlpha = 1;
+    this.trailParticles.length = alive;
   }
 
   // --- Top ---
@@ -336,7 +429,7 @@ export class Renderer {
 
     ctx.beginPath();
     ctx.arc(cx + 2 * this.dpr, cy + 3 * this.dpr, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fill();
 
     const gradient = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
@@ -361,23 +454,15 @@ export class Renderer {
     const colors = [color, '#e0c870', '#f4c4c4', '#b0e4c4', '#b4d4f0', '#d4b8e4', '#fff'];
     for (let i = 0; i < 60; i++) {
       this.confetti.push({
-        x: this.width / 2 + (Math.random() - 0.5) * 200,
-        y: this.height / 2,
-        vx: (Math.random() - 0.5) * 12,
-        vy: -Math.random() * 15 - 4,
+        x: this.width / 2 + (Math.random() - 0.5) * 200, y: this.height / 2,
+        vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 15 - 4,
         size: Math.random() * 7 + 3,
         color: colors[Math.floor(Math.random() * colors.length)],
-        rotation: Math.random() * 360,
-        rotSpeed: (Math.random() - 0.5) * 8,
-        life: 1,
+        rotation: Math.random() * 360, rotSpeed: (Math.random() - 0.5) * 8, life: 1,
       });
     }
   }
-
-  stopConfetti() {
-    this.confettiActive = false;
-    this.confetti = [];
-  }
+  stopConfetti() { this.confettiActive = false; this.confetti = []; }
 
   private updateConfetti() {
     const ctx = this.ctx;
@@ -387,11 +472,8 @@ export class Renderer {
       c.rotation += c.rotSpeed; c.life -= 0.01;
       if (c.life <= 0) continue;
       alive = true;
-      ctx.save();
-      ctx.translate(c.x, c.y);
-      ctx.rotate((c.rotation * Math.PI) / 180);
-      ctx.globalAlpha = c.life;
-      ctx.fillStyle = c.color;
+      ctx.save(); ctx.translate(c.x, c.y); ctx.rotate((c.rotation * Math.PI) / 180);
+      ctx.globalAlpha = c.life; ctx.fillStyle = c.color;
       ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 0.6);
       ctx.restore();
     }
@@ -407,8 +489,7 @@ export class Renderer {
   }
 
   private easeOutBack(t: number): number {
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
+    const c1 = 1.70158; const c3 = c1 + 1;
     return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
   }
 }
@@ -417,4 +498,9 @@ interface Confetti {
   x: number; y: number; vx: number; vy: number;
   size: number; color: string; rotation: number;
   rotSpeed: number; life: number;
+}
+
+interface TrailParticle {
+  x: number; y: number; vx: number; vy: number;
+  size: number; life: number; color: string;
 }

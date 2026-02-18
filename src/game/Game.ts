@@ -121,6 +121,7 @@ export class Game {
 
     if (!result) {
       playBump();
+      this.renderer.triggerShake();
       // Kuyrukta sonraki hamleyi dene
       if (this.moveQueue.length > 0) {
         const next = this.moveQueue.shift()!;

@@ -45,7 +45,7 @@ export const WALL_HEIGHT = 8;
 export const SWIPE_THRESHOLD = 30;
 
 // Animasyon
-export const SLIDE_SPEED = 0.07; // Saniye / karo (hızlı ve kaygan)
+export const SLIDE_SPEED = 0.038; // Saniye / karo (hizli ve kaygan)
 export const PAINT_ANIM_DURATION = 150; // ms
 
 // Yıldız hesaplama eşikleri
