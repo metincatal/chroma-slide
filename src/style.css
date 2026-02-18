@@ -149,12 +149,6 @@ html, body {
   color: #6a6058;
 }
 
-.level-btn.locked {
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(106, 96, 88, 0.25);
-  cursor: not-allowed;
-}
-
 .level-btn.completed {
   background: rgba(176, 228, 196, 0.5);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -210,6 +204,8 @@ html, body {
   position: absolute;
   right: 16px;
   top: 14px;
+  display: flex;
+  gap: 8px;
 }
 
 .hud-center {

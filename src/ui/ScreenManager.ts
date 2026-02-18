@@ -1,4 +1,4 @@
-import { getUnlockedLevel, getAllStars } from '../utils/storage';
+import { getAllStars } from '../utils/storage';
 import { LEVEL_COLORS } from '../utils/constants';
 import { playClick, resumeAudio } from '../utils/sound';
 
@@ -8,6 +8,7 @@ interface ScreenCallbacks {
   onPlay: () => void;
   onSelectLevel: (levelId: number) => void;
   onBack: () => void;
+  onRestart: () => void;
   onScreenshot: () => void;
 }
 
@@ -67,32 +68,31 @@ export class ScreenManager {
   }
 
   private showLevelSelect() {
-    const unlocked = getUnlockedLevel();
     const allStars = getAllStars();
 
     let levelsHtml = '';
     for (let i = 1; i <= this.totalLevels; i++) {
       const stars = allStars[i] || 0;
-      const isUnlocked = i <= unlocked;
       const isCompleted = stars > 0;
 
       let className = 'level-btn';
-      if (isCompleted) className += ' completed';
-      else if (isUnlocked) className += ' unlocked';
-      else className += ' locked';
+      if (isCompleted) {
+        className += ' completed';
+      } else {
+        className += ' unlocked';
+      }
 
       const colorIdx = (i - 1) % LEVEL_COLORS.length;
-      const style = isUnlocked && !isCompleted
+      const style = !isCompleted
         ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 20)})`
         : '';
 
       const starsText = isCompleted
         ? `<div class="level-stars">${'\u2605'.repeat(stars)}${'\u2606'.repeat(3 - stars)}</div>`
-        : isUnlocked ? '' : '<div class="level-stars">\uD83D\uDD12</div>';
+        : '';
 
       levelsHtml += `
-        <button class="${className}" ${!isUnlocked ? 'disabled' : ''}
-                data-level="${i}" ${style ? `style="${style}"` : ''}>
+        <button class="${className}" data-level="${i}" ${style ? `style="${style}"` : ''}>
           ${i}
           ${starsText}
         </button>
@@ -115,7 +115,7 @@ export class ScreenManager {
       this.callbacks.onBack();
     });
 
-    this.overlay.querySelectorAll('.level-btn.unlocked, .level-btn.completed').forEach((btn) => {
+    this.overlay.querySelectorAll('.level-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         playClick();
         const levelId = parseInt((btn as HTMLElement).dataset.level!);
@@ -136,8 +136,11 @@ export class ScreenManager {
           <div class="hud-level-label">Seviye ${data.levelId}</div>
         </div>
         <div class="hud-right">
+          <button class="hud-btn" id="btn-restart">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          </button>
           <button class="hud-btn" id="btn-screenshot">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M3 9h2"/><path d="M19 9h2"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
       </div>
@@ -150,6 +153,11 @@ export class ScreenManager {
     this.overlay.querySelector('#btn-hud-back')!.addEventListener('click', () => {
       playClick();
       this.callbacks.onBack();
+    });
+
+    this.overlay.querySelector('#btn-restart')!.addEventListener('click', () => {
+      playClick();
+      this.callbacks.onRestart();
     });
 
     this.overlay.querySelector('#btn-screenshot')!.addEventListener('click', () => {

@@ -43,6 +43,11 @@ export class Game {
           this.showScreen('menu');
         }
       },
+      onRestart: () => {
+        if (this.currentLevel) {
+          this.startLevel(this.currentLevel.data.id);
+        }
+      },
       onScreenshot: () => this.takeScreenshot(),
     });
   }
