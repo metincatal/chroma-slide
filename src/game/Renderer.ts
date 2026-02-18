@@ -6,6 +6,18 @@ import {
   BALL_RADIUS, PAINT_ANIM_DURATION,
 } from '../utils/constants';
 
+// Vite base path
+const BASE = import.meta.env.BASE_URL;
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private width = 0;
@@ -19,23 +31,94 @@ export class Renderer {
   private confetti: Confetti[] = [];
   private confettiActive = false;
 
-  // Dış alan cache
+  // Dis alan cache
   private exteriorCache: Set<string> | null = null;
   private cachedLevelId = -1;
 
+  // Texture'lar
+  private texBoard: HTMLImageElement | null = null;
+  private texPath: HTMLImageElement | null = null;
+  private texBg: HTMLImageElement | null = null;
+  private texturesLoaded = false;
+
+  // Tile pattern cache
+  private boardPattern: CanvasPattern | null = null;
+  private pathPattern: CanvasPattern | null = null;
+  private bgPattern: CanvasPattern | null = null;
+  private patternCellSize = 0;
+
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 2D context alınamadı');
+    if (!ctx) throw new Error('Canvas 2D context alinamadi');
     this.ctx = ctx;
+    this.loadTextures();
+  }
+
+  private async loadTextures() {
+    try {
+      const [board, path, bg] = await Promise.all([
+        loadImage(`${BASE}assets/textures/board.jpg`),
+        loadImage(`${BASE}assets/textures/path.jpg`),
+        loadImage(`${BASE}assets/textures/background.jpg`),
+      ]);
+      this.texBoard = board;
+      this.texPath = path;
+      this.texBg = bg;
+      this.texturesLoaded = true;
+    } catch (e) {
+      console.warn('Texture yuklenemedi, fallback renklere geciliyor:', e);
+    }
+  }
+
+  // cellSize degistiginde pattern'leri yeniden olustur
+  private updatePatterns() {
+    if (!this.texturesLoaded || this.patternCellSize === this.cellSize) return;
+    this.patternCellSize = this.cellSize;
+
+    const s = this.cellSize;
+
+    // Board pattern: texture'i hucre boyutuna olcekle ve tekrarla
+    if (this.texBoard) {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = s;
+      offscreen.height = s;
+      const octx = offscreen.getContext('2d')!;
+      octx.drawImage(this.texBoard, 0, 0, s, s);
+      this.boardPattern = this.ctx.createPattern(offscreen, 'repeat');
+    }
+
+    if (this.texPath) {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = s;
+      offscreen.height = s;
+      const octx = offscreen.getContext('2d')!;
+      octx.drawImage(this.texPath, 0, 0, s, s);
+      this.pathPattern = this.ctx.createPattern(offscreen, 'repeat');
+    }
   }
 
   resize(width: number, height: number, dpr: number) {
     this.width = width;
     this.height = height;
     this.dpr = dpr;
+    // Arka plan pattern'i ekran boyutuna gore
+    if (this.texBg) {
+      this.bgPattern = this.ctx.createPattern(this.texBg, 'repeat');
+    }
   }
 
   clear() {
+    if (this.texturesLoaded && this.texBg) {
+      this.bgPattern = this.ctx.createPattern(this.texBg, 'repeat');
+      if (this.bgPattern) {
+        this.ctx.fillStyle = this.bgPattern;
+        this.ctx.fillRect(0, 0, this.width, this.height);
+        // Hafif acik overlay (asiri karanlik olmamasi icin)
+        this.ctx.fillStyle = 'rgba(240, 236, 230, 0.45)';
+        this.ctx.fillRect(0, 0, this.width, this.height);
+        return;
+      }
+    }
     this.ctx.fillStyle = COLORS.BACKGROUND;
     this.ctx.fillRect(0, 0, this.width, this.height);
   }
@@ -48,7 +131,7 @@ export class Renderer {
     this.offsetY = Math.floor((this.height - gridHeight * this.cellSize) / 2) + 30 * this.dpr;
   }
 
-  // PATH'e komşu olmayan WALL = dış alan (çizilmez)
+  // PATH'e komsu olmayan WALL = dis alan (cizilmez)
   private computeExterior(level: Level): Set<string> {
     if (this.exteriorCache && this.cachedLevelId === level.data.id) {
       return this.exteriorCache;
@@ -87,17 +170,18 @@ export class Renderer {
     const ctx = this.ctx;
     const { width: gw, height: gh } = level.data;
 
-    ctx.fillStyle = COLORS.BACKGROUND;
-    ctx.fillRect(0, 0, this.width, this.height);
+    // Arka plan
+    this.drawBackground();
 
     this.calculateLayout(gw, gh);
+    this.updatePatterns();
 
     const now = performance.now();
     const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
     const paintColor = LEVEL_COLORS[colorIdx];
     const exterior = this.computeExterior(level);
 
-    // 1. Tahta yüzey (iç duvarlar) - dış alan hariç
+    // 1. Board (ic duvarlar) - dis alan haric
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.data.grid[y * gw + x] !== WALL) continue;
@@ -109,7 +193,7 @@ export class Renderer {
       }
     }
 
-    // 2. Kanal (PATH + PAINTED) - grid çizgisi yok
+    // 2. Kanal (PATH + PAINTED)
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         const tile = level.grid[y * gw + x];
@@ -136,32 +220,74 @@ export class Renderer {
     }
   }
 
-  // Tahta yüzey bloğu (duvar)
+  // Arka plan cizimi (texture veya duz renk)
+  private drawBackground() {
+    const ctx = this.ctx;
+    if (this.texturesLoaded && this.texBg) {
+      if (!this.bgPattern) {
+        this.bgPattern = ctx.createPattern(this.texBg, 'repeat');
+      }
+      if (this.bgPattern) {
+        ctx.fillStyle = this.bgPattern;
+        ctx.fillRect(0, 0, this.width, this.height);
+        // Acik overlay - buz temasini yumusatir
+        ctx.fillStyle = 'rgba(240, 236, 230, 0.4)';
+        ctx.fillRect(0, 0, this.width, this.height);
+        return;
+      }
+    }
+    ctx.fillStyle = COLORS.BACKGROUND;
+    ctx.fillRect(0, 0, this.width, this.height);
+  }
+
+  // Board (duvar) - buz texture
   private drawBoard(x: number, y: number) {
     const ctx = this.ctx;
     const s = this.cellSize;
 
-    // Tahta gradyanı (üstten alta: açık → koyu)
-    const gradient = ctx.createLinearGradient(x, y, x, y + s);
-    gradient.addColorStop(0, COLORS.BOARD_LIGHT);
-    gradient.addColorStop(1, COLORS.BOARD_DARK);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(x, y, s, s);
+    if (this.boardPattern) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = this.boardPattern;
+      ctx.fillRect(0, 0, s, s);
+      // Hafif mavi-beyaz buz tonu overlay
+      ctx.fillStyle = 'rgba(200, 220, 240, 0.15)';
+      ctx.fillRect(0, 0, s, s);
+      ctx.restore();
+    } else {
+      // Fallback
+      const gradient = ctx.createLinearGradient(x, y, x, y + s);
+      gradient.addColorStop(0, COLORS.BOARD_LIGHT);
+      gradient.addColorStop(1, COLORS.BOARD_DARK);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, y, s, s);
+    }
   }
 
-  // Kanal (oyulmuş alan)
+  // Kanal (bos path) - kar/frost texture
   private drawChannel(px: number, py: number, gx: number, gy: number, level: Level, exterior: Set<string>) {
     const ctx = this.ctx;
     const s = this.cellSize;
 
-    ctx.fillStyle = COLORS.PATH;
-    ctx.fillRect(px, py, s, s);
+    if (this.pathPattern) {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.fillStyle = this.pathPattern;
+      ctx.fillRect(0, 0, s, s);
+      // Hafif beyaz overlay - frost hissi
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.fillRect(0, 0, s, s);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = COLORS.PATH;
+      ctx.fillRect(px, py, s, s);
+    }
 
-    // Duvar kenarlarında iç gölge
+    // Duvar kenarlarinda ic golge
     this.drawInnerShadows(px, py, gx, gy, level, exterior);
   }
 
-  // Boyanmış kanal
+  // Boyali kanal
   private drawPaintedChannel(
     px: number, py: number, gx: number, gy: number,
     level: Level, exterior: Set<string>,
@@ -170,9 +296,19 @@ export class Renderer {
     const ctx = this.ctx;
     const s = this.cellSize;
 
-    // Taban
-    ctx.fillStyle = COLORS.PATH;
-    ctx.fillRect(px, py, s, s);
+    // Taban (path texture)
+    if (this.pathPattern) {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.fillStyle = this.pathPattern;
+      ctx.fillRect(0, 0, s, s);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.fillRect(0, 0, s, s);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = COLORS.PATH;
+      ctx.fillRect(px, py, s, s);
+    }
 
     // Boya
     const eased = this.easeOutBack(animT);
@@ -191,11 +327,11 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
 
-    // Duvar kenarlarında iç gölge
+    // Duvar kenarlarinda ic golge
     this.drawInnerShadows(px, py, gx, gy, level, exterior);
   }
 
-  // PATH karosunun duvar komşu kenarlarına iç gölge çiz
+  // PATH karosunun duvar komsu kenarlarina ic golge ciz
   private drawInnerShadows(px: number, py: number, gx: number, gy: number, level: Level, exterior: Set<string>) {
     const ctx = this.ctx;
     const s = this.cellSize;
@@ -220,26 +356,26 @@ export class Renderer {
       if (side === 'top') {
         grad = ctx.createLinearGradient(px, py, px, py + shadowSize);
         ctx.fillStyle = grad;
-        grad.addColorStop(0, 'rgba(0,0,0,0.18)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        grad.addColorStop(0, 'rgba(100,140,180,0.22)');
+        grad.addColorStop(1, 'rgba(100,140,180,0)');
         ctx.fillRect(px, py, s, shadowSize);
       } else if (side === 'bottom') {
         grad = ctx.createLinearGradient(px, py + s, px, py + s - shadowSize);
         ctx.fillStyle = grad;
-        grad.addColorStop(0, 'rgba(0,0,0,0.10)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        grad.addColorStop(0, 'rgba(100,140,180,0.12)');
+        grad.addColorStop(1, 'rgba(100,140,180,0)');
         ctx.fillRect(px, py + s - shadowSize, s, shadowSize);
       } else if (side === 'left') {
         grad = ctx.createLinearGradient(px, py, px + shadowSize, py);
         ctx.fillStyle = grad;
-        grad.addColorStop(0, 'rgba(0,0,0,0.15)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        grad.addColorStop(0, 'rgba(100,140,180,0.18)');
+        grad.addColorStop(1, 'rgba(100,140,180,0)');
         ctx.fillRect(px, py, shadowSize, s);
       } else {
         grad = ctx.createLinearGradient(px + s, py, px + s - shadowSize, py);
         ctx.fillStyle = grad;
-        grad.addColorStop(0, 'rgba(0,0,0,0.08)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        grad.addColorStop(0, 'rgba(100,140,180,0.10)');
+        grad.addColorStop(1, 'rgba(100,140,180,0)');
         ctx.fillRect(px + s - shadowSize, py, shadowSize, s);
       }
     }
@@ -251,10 +387,10 @@ export class Renderer {
     const cy = this.offsetY + (ball.displayY + 0.5) * this.cellSize;
     const r = BALL_RADIUS * (this.cellSize / 60);
 
-    // Gölge
+    // Golge
     ctx.beginPath();
     ctx.arc(cx + 2 * this.dpr, cy + 3 * this.dpr, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillStyle = 'rgba(0,0,0,0.20)';
     ctx.fill();
 
     // Ana top
@@ -274,14 +410,14 @@ export class Renderer {
     // Parlama
     ctx.beginPath();
     ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.3, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillStyle = 'rgba(255,255,255,0.50)';
     ctx.fill();
   }
 
   startConfetti(color: string) {
     this.confetti = [];
     this.confettiActive = true;
-    const colors = [color, '#e0c870', '#d49494', '#7eb894', '#7494c4', '#a888b4', '#fff'];
+    const colors = [color, '#e0c870', '#f4c4c4', '#b0e4c4', '#b4d4f0', '#d4b8e4', '#fff'];
     for (let i = 0; i < 60; i++) {
       this.confetti.push({
         x: this.width / 2 + (Math.random() - 0.5) * 200,
