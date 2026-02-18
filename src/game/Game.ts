@@ -5,7 +5,8 @@ import { Level } from './Level';
 import { ScreenManager, Screen } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
 import { Direction, LEVEL_COLORS } from '../utils/constants';
-import { saveProgress } from '../utils/storage';
+import { saveProgress, saveTheme, getSelectedTheme } from '../utils/storage';
+import { getThemeById, ThemeConfig } from '../utils/themes';
 import { playSlide, playComplete, playBump, resumeAudio } from '../utils/sound';
 
 export class Game {
@@ -39,6 +40,8 @@ export class Game {
       onBack: () => {
         if (this.screen === 'game') {
           this.showScreen('levels');
+        } else if (this.screen === 'themes') {
+          this.showScreen('menu');
         } else {
           this.showScreen('menu');
         }
@@ -49,7 +52,13 @@ export class Game {
         }
       },
       onScreenshot: () => this.takeScreenshot(),
+      onShowThemes: () => this.showScreen('themes'),
+      onSelectTheme: (theme) => this.applyTheme(theme),
     });
+
+    // Baslangicta kayitli temayi yukle
+    const savedTheme = getThemeById(getSelectedTheme());
+    this.renderer.setTheme(savedTheme);
   }
 
   resize(width: number, height: number, dpr: number) {
@@ -74,6 +83,13 @@ export class Game {
     }
 
     this.screenManager.show(screen, data);
+  }
+
+  private async applyTheme(theme: ThemeConfig) {
+    saveTheme(theme.id);
+    await this.renderer.setTheme(theme);
+    // Tema secim ekranini yeniden goster (aktif badge guncellenmesi icin)
+    this.showScreen('themes');
   }
 
   private startLevel(levelId: number) {

@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'chromaslide_progress';
+const THEME_KEY = 'chromaslide_theme';
 
 interface ProgressData {
   unlockedLevel: number;
@@ -63,4 +64,18 @@ export function saveProgress(levelId: number, stars: number, moves: number) {
 
 export function getAllStars(): Record<number, number> {
   return load().stars;
+}
+
+export function saveTheme(themeId: string) {
+  try {
+    localStorage.setItem(THEME_KEY, themeId);
+  } catch {}
+}
+
+export function getSelectedTheme(): string {
+  try {
+    return localStorage.getItem(THEME_KEY) || 'ice';
+  } catch {
+    return 'ice';
+  }
 }

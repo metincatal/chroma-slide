@@ -1,8 +1,10 @@
 import { getAllStars } from '../utils/storage';
 import { LEVEL_COLORS } from '../utils/constants';
+import { THEMES, ThemeConfig } from '../utils/themes';
+import { getSelectedTheme } from '../utils/storage';
 import { playClick, resumeAudio } from '../utils/sound';
 
-export type Screen = 'menu' | 'levels' | 'game';
+export type Screen = 'menu' | 'levels' | 'themes' | 'game';
 
 interface ScreenCallbacks {
   onPlay: () => void;
@@ -10,6 +12,8 @@ interface ScreenCallbacks {
   onBack: () => void;
   onRestart: () => void;
   onScreenshot: () => void;
+  onSelectTheme: (theme: ThemeConfig) => void;
+  onShowThemes: () => void;
 }
 
 export class ScreenManager {
@@ -35,6 +39,9 @@ export class ScreenManager {
       case 'levels':
         this.showLevelSelect();
         break;
+      case 'themes':
+        this.showThemeSelect();
+        break;
       case 'game':
         this.showGameHUD(data as { levelId: number; progress: number });
         break;
@@ -56,6 +63,7 @@ export class ScreenManager {
         <div class="menu-title"><span class="chroma">Chroma</span>Slide</div>
         <div class="menu-subtitle">Kayarak Boya, Labirenti Coz</div>
         <button class="btn btn-primary" id="btn-play">OYNA</button>
+        <button class="btn btn-secondary" id="btn-themes">TEMALAR</button>
       </div>
     `;
     this.overlay.innerHTML = html;
@@ -64,6 +72,58 @@ export class ScreenManager {
       resumeAudio();
       playClick();
       this.callbacks.onPlay();
+    });
+
+    this.overlay.querySelector('#btn-themes')!.addEventListener('click', () => {
+      resumeAudio();
+      playClick();
+      this.callbacks.onShowThemes();
+    });
+  }
+
+  private showThemeSelect() {
+    const currentTheme = getSelectedTheme();
+
+    let themesHtml = '';
+    for (const theme of THEMES) {
+      const isActive = theme.id === currentTheme;
+      const activeClass = isActive ? ' theme-card-active' : '';
+
+      themesHtml += `
+        <button class="theme-card${activeClass}" data-theme="${theme.id}">
+          <div class="theme-preview">
+            <div class="theme-preview-board" style="background: ${theme.previewBoard}"></div>
+            <div class="theme-preview-path" style="background: ${theme.previewPath}"></div>
+          </div>
+          <div class="theme-name">${theme.name}</div>
+          ${isActive ? '<div class="theme-active-badge">Aktif</div>' : ''}
+        </button>
+      `;
+    }
+
+    const html = `
+      <div class="theme-screen">
+        <button class="back-btn" id="btn-back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div class="theme-screen-title">Tema Sec</div>
+        <div class="theme-grid">${themesHtml}</div>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    this.overlay.querySelector('#btn-back')!.addEventListener('click', () => {
+      playClick();
+      this.callbacks.onBack();
+    });
+
+    this.overlay.querySelectorAll('.theme-card').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        playClick();
+        const themeId = (btn as HTMLElement).dataset.theme!;
+        const theme = THEMES.find(t => t.id === themeId);
+        if (theme) this.callbacks.onSelectTheme(theme);
+      });
     });
   }
 

@@ -5,6 +5,7 @@ import {
   COLORS, LEVEL_COLORS,
   BALL_RADIUS, PAINT_ANIM_DURATION,
 } from '../utils/constants';
+import { ThemeConfig } from '../utils/themes';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -37,8 +38,12 @@ export class Renderer {
   // Texture
   private texBoard: HTMLImageElement | null = null;
   private texPath: HTMLImageElement | null = null;
-  private texBg: HTMLImageElement | null = null;
   private texturesLoaded = false;
+  private currentThemeId = '';
+
+  // Tema fallback renkleri
+  private boardColor: string = COLORS.BOARD_LIGHT;
+  private pathColor: string = COLORS.PATH;
 
   // Statik katman cache
   private staticCanvas: HTMLCanvasElement | null = null;
@@ -60,23 +65,31 @@ export class Renderer {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D context alinamadi');
     this.ctx = ctx;
-    this.loadTextures();
   }
 
-  private async loadTextures() {
+  async setTheme(theme: ThemeConfig) {
+    // Ayni temayi tekrar yukleme
+    if (this.currentThemeId === theme.id && this.texturesLoaded) return;
+
+    this.boardColor = theme.boardColor;
+    this.pathColor = theme.pathColor;
+    this.currentThemeId = theme.id;
+    this.texturesLoaded = false;
+    this.texBoard = null;
+    this.texPath = null;
+    this.staticLevelId = -1; // Statik cache'i invalidate et
+
     try {
-      const [board, path, bg] = await Promise.all([
-        loadImage(`${BASE}assets/textures/board.jpg`),
-        loadImage(`${BASE}assets/textures/path.jpg`),
-        loadImage(`${BASE}assets/textures/background.jpg`),
+      const [board, path] = await Promise.all([
+        loadImage(`${BASE}assets/textures/${theme.folder}/board.jpg`),
+        loadImage(`${BASE}assets/textures/${theme.folder}/path.jpg`),
       ]);
       this.texBoard = board;
       this.texPath = path;
-      this.texBg = bg;
       this.texturesLoaded = true;
-      this.staticLevelId = -1;
+      this.staticLevelId = -1; // Yeniden build et
     } catch (e) {
-      console.warn('Texture yuklenemedi:', e);
+      console.warn('Texture yuklenemedi, fallback renkler kullaniliyor:', e);
     }
   }
 
@@ -96,18 +109,8 @@ export class Renderer {
     this.shakeActive = true;
   }
 
-  // --- Arka plan ---
+  // --- Arka plan (duz renk, texture yok) ---
   private drawBg(ctx: CanvasRenderingContext2D) {
-    if (this.texturesLoaded && this.texBg) {
-      const pat = ctx.createPattern(this.texBg, 'repeat');
-      if (pat) {
-        ctx.fillStyle = pat;
-        ctx.fillRect(0, 0, this.width, this.height);
-        ctx.fillStyle = 'rgba(240, 236, 230, 0.4)';
-        ctx.fillRect(0, 0, this.width, this.height);
-        return;
-      }
-    }
     ctx.fillStyle = COLORS.BACKGROUND;
     ctx.fillRect(0, 0, this.width, this.height);
   }
@@ -219,11 +222,17 @@ export class Renderer {
 
     this.drawBg(sCtx);
 
-    // Fill stilleri
-    let boardFill: string | CanvasPattern = COLORS.BOARD_LIGHT;
-    if (this.texBoard) { const p = sCtx.createPattern(this.texBoard, 'repeat'); if (p) boardFill = p; }
-    let pathFill: string | CanvasPattern = COLORS.PATH;
-    if (this.texPath) { const p = sCtx.createPattern(this.texPath, 'repeat'); if (p) pathFill = p; }
+    // Fill stilleri - texture varsa pattern, yoksa fallback renk
+    let boardFill: string | CanvasPattern = this.boardColor;
+    if (this.texturesLoaded && this.texBoard) {
+      const p = sCtx.createPattern(this.texBoard, 'repeat');
+      if (p) boardFill = p;
+    }
+    let pathFill: string | CanvasPattern = this.pathColor;
+    if (this.texturesLoaded && this.texPath) {
+      const p = sCtx.createPattern(this.texPath, 'repeat');
+      if (p) pathFill = p;
+    }
 
     // Board karolari
     for (let y = 0; y < gh; y++) {
@@ -234,7 +243,8 @@ export class Renderer {
         const [tl, tr, br, bl] = this.getBoardCorners(x, y, gw, gh, grid, exterior, boardR);
         sCtx.fillStyle = boardFill;
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
-        sCtx.fillStyle = 'rgba(200, 220, 240, 0.12)';
+        // Hafif overlay
+        sCtx.fillStyle = 'rgba(200, 220, 240, 0.08)';
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
       }
     }
@@ -248,7 +258,8 @@ export class Renderer {
         const [tl, tr, br, bl] = this.getPathCorners(x, y, gw, gh, grid, pathR);
         sCtx.fillStyle = pathFill;
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
-        sCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        // Hafif beyaz overlay
+        sCtx.fillStyle = 'rgba(255, 255, 255, 0.15)';
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
         // Ic golgeler
         this.drawShadows(sCtx, px, py, x, y, gw, gh, grid, exterior, s);
