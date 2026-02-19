@@ -162,46 +162,21 @@ export class Renderer {
     ];
   }
 
-  // --- Boyali karo kose yuvarlama: duvara bitisik koselerde boardR kullan ---
+  // --- Boyali karo kose yuvarlama ---
+  // Sadece HER IKI ortogonal komsu da duvarsa (dis kose) → boardR ile yuvarla
+  // Diger tum durumlarda → 0 (kose yok, duz kenar)
   private getPaintedCorners(
-    gx: number, gy: number, gw: number, gh: number, grid: number[],
-    pathR: number, boardR: number
+    gx: number, gy: number, gw: number, gh: number, grid: number[], boardR: number
   ): [number, number, number, number] {
     const isPath = (x: number, y: number) =>
       x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
 
-    // Her kose icin: her iki komsu da PATH degilse (duvara bitisik kose) → boardR, degilse 0
-    const corners: [number, number, number, number] = [0, 0, 0, 0];
-
-    // Sol-ust kose
-    if (!isPath(gx - 1, gy) && !isPath(gx, gy - 1)) {
-      corners[0] = boardR;
-    } else if (!isPath(gx - 1, gy) || !isPath(gx, gy - 1)) {
-      corners[0] = pathR;
-    }
-
-    // Sag-ust kose
-    if (!isPath(gx + 1, gy) && !isPath(gx, gy - 1)) {
-      corners[1] = boardR;
-    } else if (!isPath(gx + 1, gy) || !isPath(gx, gy - 1)) {
-      corners[1] = pathR;
-    }
-
-    // Sag-alt kose
-    if (!isPath(gx + 1, gy) && !isPath(gx, gy + 1)) {
-      corners[2] = boardR;
-    } else if (!isPath(gx + 1, gy) || !isPath(gx, gy + 1)) {
-      corners[2] = pathR;
-    }
-
-    // Sol-alt kose
-    if (!isPath(gx - 1, gy) && !isPath(gx, gy + 1)) {
-      corners[3] = boardR;
-    } else if (!isPath(gx - 1, gy) || !isPath(gx, gy + 1)) {
-      corners[3] = pathR;
-    }
-
-    return corners;
+    return [
+      (!isPath(gx - 1, gy) && !isPath(gx, gy - 1)) ? boardR : 0,
+      (!isPath(gx + 1, gy) && !isPath(gx, gy - 1)) ? boardR : 0,
+      (!isPath(gx + 1, gy) && !isPath(gx, gy + 1)) ? boardR : 0,
+      (!isPath(gx - 1, gy) && !isPath(gx, gy + 1)) ? boardR : 0,
+    ];
   }
 
   // --- Secici kose yuvarlama: board karolari ---
@@ -360,10 +335,9 @@ export class Renderer {
         this.shakeActive = false;
       } else {
         const t = elapsed / 280;
-        const amp = 6 * (1 - t) * (1 - t); // Kare azalma
-        sx = Math.sin(t * Math.PI * 8) * amp; // 8Hz X
-        sy = Math.cos(t * Math.PI * 6) * amp * 0.5; // 6Hz Y
-        // Scale bounce: ilk %35'te hafif buyume
+        const amp = 6 * (1 - t) * (1 - t);
+        sx = Math.sin(t * Math.PI * 8) * amp;
+        sy = Math.cos(t * Math.PI * 6) * amp * 0.5;
         if (t < 0.35) {
           scaleVal = 1.0 + 0.012 * Math.sin((t / 0.35) * Math.PI);
         }
@@ -372,7 +346,6 @@ export class Renderer {
 
     ctx.save();
 
-    // Scale bounce uygula (canvas merkezinden)
     if (scaleVal !== 1) {
       const cx = this.width / 2;
       const cy = this.height / 2;
@@ -386,13 +359,13 @@ export class Renderer {
     // 1. Statik katman
     if (this.staticCanvas) ctx.drawImage(this.staticCanvas, 0, 0);
 
-    // 2. Boyali karolar
+    // 2. Boyali karolar - karolarin arasinda bosluk yok
     const now = performance.now();
     const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
     const paintColor = LEVEL_COLORS[colorIdx];
     const s = this.cellSize;
-    const pathR = Math.max(3, s * 0.38);
     const boardR = Math.max(3, s * 0.28);
+    const e = 0.5; // Anti-alias overlap - boyali karolar icin biraz daha buyuk
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
@@ -404,12 +377,11 @@ export class Renderer {
         const animT = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
         const eased = this.easeOutBack(animT);
         const cx = px + s / 2, cy = py + s / 2;
-        const sw = s * eased, sh = s * eased;
+        const sw = s * eased + e * 2, sh = s * eased + e * 2;
 
-        // Boyali karo koseleri: duvara bitisik koselerde boardR kullan
+        // Sadece dis koseler yuvarlatilir (her iki komsu da duvarsa)
         const [tl, tr, br, bl] = this.getPaintedCorners(
-          x, y, gw, gh, level.data.grid,
-          pathR * eased, boardR * eased
+          x, y, gw, gh, level.data.grid, boardR * eased
         );
 
         ctx.fillStyle = paintColor;
@@ -426,19 +398,73 @@ export class Renderer {
       }
     }
 
-    // 3. Parcacik izi (gelismis surtunme parcaciklari)
+    // 3. Hiz kuyrugu (speed trail) - topun arkasinda uzun gradient
+    this.drawSpeedTrail(ctx, ball, paintColor);
+
+    // 4. Parcacik izi
     this.updateTrail(ctx, ball, paintColor);
 
-    // 4. Top
+    // 5. Top (deforme olarak)
     this.drawBall(ball, paintColor);
 
-    // 5. Konfeti
+    // 6. Konfeti
     if (this.confettiActive) this.updateConfetti();
 
     ctx.restore();
   }
 
-  // --- Gelismis parcacik izi sistemi ---
+  // --- Hiz kuyrugu: topun arkasinda uzanan gradient ucgen ---
+  private drawSpeedTrail(ctx: CanvasRenderingContext2D, ball: Ball, color: string) {
+    if (!ball.animating || ball.speed < 0.1) return;
+
+    const s = this.cellSize;
+    const bx = this.offsetX + (ball.displayX + 0.5) * s;
+    const by = this.offsetY + (ball.displayY + 0.5) * s;
+    const r = BALL_RADIUS * (s / 60);
+
+    const dirX = ball.moveDirX;
+    const dirY = ball.moveDirY;
+    if (dirX === 0 && dirY === 0) return;
+
+    const speed = ball.speed;
+    // Kuyruk uzunlugu: hiza orantili, 2-5 karo arasi
+    const tailLength = r * 2 + speed * s * 3;
+    // Kuyruk kalınligi: topun yaricapi kadar baslayip sifira daralir
+    const tailWidth = r * 0.9;
+
+    // Topun arka tarafi (hareketin tersi)
+    const tailX = bx - dirX * tailLength;
+    const tailY = by - dirY * tailLength;
+
+    // Gradient olustur
+    const grad = ctx.createLinearGradient(bx, by, tailX, tailY);
+    grad.addColorStop(0, this.colorWithAlpha(color, 0.35 * speed));
+    grad.addColorStop(0.3, this.colorWithAlpha(color, 0.15 * speed));
+    grad.addColorStop(1, this.colorWithAlpha(color, 0));
+
+    ctx.save();
+    ctx.beginPath();
+
+    // Ucgen seklinde kuyruk: topun arkasinda genis, sonda sivri
+    // Hareket yonune dik vektor
+    const perpX = -dirY;
+    const perpY = dirX;
+
+    // Topun arka kenar noktasi
+    const backX = bx - dirX * r * 0.5;
+    const backY = by - dirY * r * 0.5;
+
+    ctx.moveTo(backX + perpX * tailWidth, backY + perpY * tailWidth);
+    ctx.lineTo(backX - perpX * tailWidth, backY - perpY * tailWidth);
+    ctx.lineTo(tailX, tailY);
+    ctx.closePath();
+
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Parcacik izi ---
   private updateTrail(ctx: CanvasRenderingContext2D, ball: Ball, color: string) {
     const s = this.cellSize;
     const bx = this.offsetX + (ball.displayX + 0.5) * s;
@@ -451,33 +477,28 @@ export class Renderer {
 
       if (speed > 0.3) {
         const r = BALL_RADIUS * (s / 60);
-        // Parcacik sayisi hiza orantili: 2-5 arasi
-        const count = Math.min(5, 2 + Math.floor(speed / 3));
-        // Hareket yonunun tersi acisi
+        const count = Math.min(6, 2 + Math.floor(speed / 2));
         const moveAngle = Math.atan2(dy, dx);
         const reverseAngle = moveAngle + Math.PI;
 
         for (let i = 0; i < count; i++) {
-          // 120 derece koni icinde dagilim (surtunme hissi)
-          const coneSpread = (Math.PI * 2) / 3; // 120 derece
+          const coneSpread = (Math.PI * 2) / 3;
           const angle = reverseAngle + (Math.random() - 0.5) * coneSpread;
 
-          // Topun arka kenarindan spawn
-          const spawnDist = r * 0.7 + Math.random() * r * 0.3;
-          const spawnX = bx + Math.cos(reverseAngle) * spawnDist * 0.5 + (Math.random() - 0.5) * r * 0.5;
-          const spawnY = by + Math.sin(reverseAngle) * spawnDist * 0.5 + (Math.random() - 0.5) * r * 0.5;
+          const spawnX = bx + Math.cos(reverseAngle) * r * 0.6 + (Math.random() - 0.5) * r * 0.6;
+          const spawnY = by + Math.sin(reverseAngle) * r * 0.6 + (Math.random() - 0.5) * r * 0.6;
 
-          const isDust = Math.random() < 0.65; // %65 toz, %35 renkli
-          const particleSpeed = 0.3 + Math.random() * 0.8;
+          const isDust = Math.random() < 0.5;
+          const particleSpeed = 0.4 + Math.random() * 1.2;
 
           this.trailParticles.push({
             x: spawnX,
             y: spawnY,
             vx: Math.cos(angle) * particleSpeed,
             vy: Math.sin(angle) * particleSpeed,
-            size: isDust ? 1 + Math.random() * 1.8 : 1.5 + Math.random() * 3,
+            size: isDust ? 1.5 + Math.random() * 2 : 2 + Math.random() * 3.5,
             life: 1,
-            color: isDust ? 'rgba(210,200,185,0.7)' : color,
+            color: isDust ? 'rgba(220,210,195,0.8)' : color,
           });
         }
       }
@@ -485,18 +506,17 @@ export class Renderer {
     this.lastBallPx = ball.animating ? bx : -1;
     this.lastBallPy = ball.animating ? by : -1;
 
-    // Guncelle ve ciz
     let alive = 0;
     for (let i = 0; i < this.trailParticles.length; i++) {
       const p = this.trailParticles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.vx *= 0.94; // Daha hizli surtunme
-      p.vy *= 0.94;
-      p.life -= 0.035; // Daha hizli sonme
+      p.vx *= 0.93;
+      p.vy *= 0.93;
+      p.life -= 0.03;
       if (p.life <= 0) continue;
 
-      ctx.globalAlpha = p.life * 0.6;
+      ctx.globalAlpha = p.life * 0.7;
       ctx.fillStyle = p.color;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
@@ -509,31 +529,68 @@ export class Renderer {
     this.trailParticles.length = alive;
   }
 
-  // --- Top ---
+  // --- Top: squash & stretch deformasyonu + hiz kuyrugu ---
   private drawBall(ball: Ball, color: string) {
     const ctx = this.ctx;
-    const cx = this.offsetX + (ball.displayX + 0.5) * this.cellSize;
-    const cy = this.offsetY + (ball.displayY + 0.5) * this.cellSize;
-    const r = BALL_RADIUS * (this.cellSize / 60);
+    const s = this.cellSize;
+    const cx = this.offsetX + (ball.displayX + 0.5) * s;
+    const cy = this.offsetY + (ball.displayY + 0.5) * s;
+    const r = BALL_RADIUS * (s / 60);
 
+    // Deformasyon hesapla
+    const speed = ball.speed;
+    const isMoving = ball.animating && speed > 0.05;
+
+    // Hareket yonune gore rotasyon acisi
+    let angle = 0;
+    if (isMoving) {
+      angle = Math.atan2(ball.moveDirY, ball.moveDirX);
+    }
+
+    // Squash & stretch: hiz arttikca daha fazla deforme
+    // stretchX: hareket yonunde uzama (1.0 - 1.35)
+    // stretchY: dik yonde basilma (1.0 - 0.72)
+    const stretchAmount = Math.min(speed, 1) * 0.35;
+    const stretchX = isMoving ? 1.0 + stretchAmount : 1.0;
+    const stretchY = isMoving ? 1.0 - stretchAmount * 0.8 : 1.0;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    if (isMoving) {
+      ctx.rotate(angle);
+    }
+
+    // Golge (hafif kaymis)
+    ctx.save();
+    ctx.scale(stretchX, stretchY);
     ctx.beginPath();
-    ctx.arc(cx + 2 * this.dpr, cy + 3 * this.dpr, r, 0, Math.PI * 2);
+    ctx.arc(2 * this.dpr, 3 * this.dpr, r, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fill();
+    ctx.restore();
 
-    const gradient = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
+    // Ana top
+    ctx.save();
+    ctx.scale(stretchX, stretchY);
+
+    const gradient = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
     gradient.addColorStop(0, '#ffffff');
     gradient.addColorStop(0.3, this.lightenColor(color, 50));
     gradient.addColorStop(1, color);
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fillStyle = gradient;
     ctx.fill();
 
+    // Parlama (highlight)
     ctx.beginPath();
-    ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.3, 0, Math.PI * 2);
+    ctx.arc(-r * 0.25, -r * 0.25, r * 0.3, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.50)';
     ctx.fill();
+
+    ctx.restore();
+    ctx.restore();
   }
 
   // --- Konfeti ---
@@ -575,6 +632,14 @@ export class Renderer {
     const g = Math.min(255, ((num >> 8) & 0xff) + amount);
     const b = Math.min(255, (num & 0xff) + amount);
     return `rgb(${r},${g},${b})`;
+  }
+
+  private colorWithAlpha(hex: string, alpha: number): string {
+    const num = parseInt(hex.slice(1), 16);
+    const r = (num >> 16) & 0xff;
+    const g = (num >> 8) & 0xff;
+    const b = num & 0xff;
+    return `rgba(${r},${g},${b},${alpha})`;
   }
 
   private easeOutBack(t: number): number {

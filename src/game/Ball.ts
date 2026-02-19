@@ -18,6 +18,11 @@ export class Ball {
   displayX: number;
   displayY: number;
 
+  // Hareket yonu ve hiz (renderer icin)
+  moveDirX = 0;
+  moveDirY = 0;
+  speed = 0; // Normalized 0-1 arasi animasyon hiz orani
+
   constructor(startX: number, startY: number) {
     this.x = startX;
     this.y = startY;
@@ -56,6 +61,14 @@ export class Ball {
     this.animPath = result.path;
     this.animProgress = 0;
     this.animDuration = result.path.length * SLIDE_SPEED * 1000;
+
+    // Hareket yonunu hesapla
+    if (result.path.length > 0) {
+      const first = result.path[0];
+      this.moveDirX = first.x - this.x;
+      this.moveDirY = first.y - this.y;
+    }
+
     this.x = result.finalX;
     this.y = result.finalY;
   }
@@ -89,10 +102,14 @@ export class Ball {
       this.displayY = last.y;
     }
 
+    // Hiz orani: ortada max, baslangic/bitte 0 (easing turevi)
+    this.speed = t < 1 ? Math.max(0, 1 - Math.abs(2 * t - 0.3)) : 0;
+
     if (t >= 1) {
       this.animating = false;
       this.displayX = this.x;
       this.displayY = this.y;
+      this.speed = 0;
     }
 
     return paintedTiles;
@@ -111,5 +128,8 @@ export class Ball {
     this.animating = false;
     this.animPath = [];
     this.animProgress = 0;
+    this.moveDirX = 0;
+    this.moveDirY = 0;
+    this.speed = 0;
   }
 }
