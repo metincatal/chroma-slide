@@ -267,6 +267,10 @@ export class Renderer {
       }
     }
 
+    // Ic kose dolgulari: board-path bulusma noktalarinda ceyrek daire
+    // 2x2 blok tara: 3 board + 1 path olan koseye board renginde ceyrek daire ciz
+    this.drawInnerCornerFills(sCtx, gw, gh, grid, exterior, s, boardR, boardFill);
+
     // Path karolari
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
@@ -283,6 +287,85 @@ export class Renderer {
     }
 
     this.staticLevelId = level.data.id;
+  }
+
+  // --- Ic kose dolgulari: board karolarin ic koselerinde ceyrek daire ---
+  // PATH karo ile board karo bulusma noktalarinda olusan boslugu doldurur
+  private drawInnerCornerFills(
+    ctx: CanvasRenderingContext2D,
+    gw: number, gh: number, grid: number[],
+    exterior: Set<number>, s: number, r: number,
+    boardFill: string | CanvasPattern
+  ) {
+    // Her board karo icin: path'e bakan ic koseleri bul
+    // Bir kose "ic kose" = o kosedeki capraz komsu PATH ama iki ortogonal komsu BOARD
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        if (grid[y * gw + x] !== WALL || exterior.has(y * gw + x)) continue;
+
+        const px = this.offsetX + x * s;
+        const py = this.offsetY + y * s;
+
+        // Her 4 kose icin kontrol et
+        // Sol-ust kose: sol komsu board, ust komsu board, sol-ust capraz path
+        const checks: [number, number, number, number, number, number, number, number][] = [
+          // [dx1,dy1 (ortogonal1), dx2,dy2 (ortogonal2), cornerX, cornerY, startAngle offset]
+          // Sol-ust: sol(-1,0) ve ust(0,-1) board, capraz(-1,-1) path → kose (px, py)
+          [-1, 0, 0, -1, -1, -1, 0, 0],
+          // Sag-ust: sag(1,0) ve ust(0,-1) board, capraz(1,-1) path → kose (px+s, py)
+          [1, 0, 0, -1, 1, -1, 1, 0],
+          // Sag-alt: sag(1,0) ve alt(0,1) board, capraz(1,1) path → kose (px+s, py+s)
+          [1, 0, 0, 1, 1, 1, 1, 1],
+          // Sol-alt: sol(-1,0) ve alt(0,1) board, capraz(-1,1) path → kose (px, py+s)
+          [-1, 0, 0, 1, -1, 1, 0, 1],
+        ];
+
+        for (const [dx1, dy1, dx2, dy2, diagX, diagY, cxOff, cyOff] of checks) {
+          const nx1 = x + dx1, ny1 = y + dy1;
+          const nx2 = x + dx2, ny2 = y + dy2;
+          const ndx = x + diagX, ndy = y + diagY;
+
+          // Ortogonal komsular board olmali (veya sinir disi)
+          const isBoard1 = nx1 < 0 || nx1 >= gw || ny1 < 0 || ny1 >= gh ||
+            (grid[ny1 * gw + nx1] === WALL && !exterior.has(ny1 * gw + nx1));
+          const isBoard2 = nx2 < 0 || nx2 >= gw || ny2 < 0 || ny2 >= gh ||
+            (grid[ny2 * gw + nx2] === WALL && !exterior.has(ny2 * gw + nx2));
+
+          // Capraz komsu path olmali
+          const isDiagPath = ndx >= 0 && ndx < gw && ndy >= 0 && ndy < gh &&
+            grid[ndy * gw + ndx] === PATH;
+
+          if (isBoard1 && isBoard2 && isDiagPath) {
+            // Bu ic kosede ceyrek daire ciz
+            const cornerX = px + cxOff * s;
+            const cornerY = py + cyOff * s;
+
+            // Hangi yone dogru ceyrek daire cizecegimizi belirle
+            // Arc merkezi kose noktasinda, path'e dogru yay
+            let startAngle = 0;
+            if (cxOff === 0 && cyOff === 0) startAngle = 0;         // sol-ust → sag-alt yay
+            else if (cxOff === 1 && cyOff === 0) startAngle = Math.PI / 2;  // sag-ust → sol-alt yay
+            else if (cxOff === 1 && cyOff === 1) startAngle = Math.PI;      // sag-alt → sol-ust yay
+            else startAngle = Math.PI * 1.5;                                  // sol-alt → sag-ust yay
+
+            ctx.fillStyle = boardFill;
+            ctx.beginPath();
+            ctx.moveTo(cornerX, cornerY);
+            ctx.arc(cornerX, cornerY, r, startAngle, startAngle + Math.PI / 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Ayni highlight overlay
+            ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
+            ctx.beginPath();
+            ctx.moveTo(cornerX, cornerY);
+            ctx.arc(cornerX, cornerY, r, startAngle, startAngle + Math.PI / 2);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
+    }
   }
 
   // --- Ic golgeler ---
@@ -416,7 +499,7 @@ export class Renderer {
 
   // --- Hiz kuyrugu: topun arkasinda uzanan gradient ucgen ---
   private drawSpeedTrail(ctx: CanvasRenderingContext2D, ball: Ball, color: string) {
-    if (!ball.animating || ball.speed < 0.1) return;
+    if (!ball.animating || ball.speed < 0.05) return;
 
     const s = this.cellSize;
     const bx = this.offsetX + (ball.displayX + 0.5) * s;
@@ -429,40 +512,59 @@ export class Renderer {
 
     const speed = ball.speed;
     // Kuyruk uzunlugu: hiza orantili, belirgin uzun
-    const tailLength = r * 3 + speed * s * 5;
+    const tailLength = r * 4 + speed * s * 6;
     // Kuyruk kalınligi: topun yaricapi kadar baslayip sifira daralir
-    const tailWidth = r * 1.1;
+    const tailWidth = r * 1.2;
 
     // Topun arka tarafi (hareketin tersi)
     const tailX = bx - dirX * tailLength;
     const tailY = by - dirY * tailLength;
 
-    // Gradient olustur - daha opak
-    const grad = ctx.createLinearGradient(bx, by, tailX, tailY);
-    grad.addColorStop(0, this.colorWithAlpha(color, 0.5 * speed));
-    grad.addColorStop(0.2, this.colorWithAlpha(color, 0.3 * speed));
-    grad.addColorStop(0.6, this.colorWithAlpha(color, 0.1 * speed));
-    grad.addColorStop(1, this.colorWithAlpha(color, 0));
-
-    ctx.save();
-    ctx.beginPath();
-
-    // Ucgen seklinde kuyruk: topun arkasinda genis, sonda sivri
     // Hareket yonune dik vektor
     const perpX = -dirY;
     const perpY = dirX;
 
     // Topun arka kenar noktasi
-    const backX = bx - dirX * r * 0.5;
-    const backY = by - dirY * r * 0.5;
+    const backX = bx - dirX * r * 0.3;
+    const backY = by - dirY * r * 0.3;
 
+    // Koyu renk versiyonu olustur (daha gorunur)
+    const darkColor = this.darkenColorHex(color, 40);
+
+    // Dış kuyruk (koyu, geniş)
+    ctx.save();
+    ctx.beginPath();
     ctx.moveTo(backX + perpX * tailWidth, backY + perpY * tailWidth);
     ctx.lineTo(backX - perpX * tailWidth, backY - perpY * tailWidth);
     ctx.lineTo(tailX, tailY);
     ctx.closePath();
 
+    const grad = ctx.createLinearGradient(bx, by, tailX, tailY);
+    grad.addColorStop(0, this.colorWithAlpha(darkColor, 0.7 * speed));
+    grad.addColorStop(0.3, this.colorWithAlpha(darkColor, 0.45 * speed));
+    grad.addColorStop(0.7, this.colorWithAlpha(darkColor, 0.15 * speed));
+    grad.addColorStop(1, this.colorWithAlpha(darkColor, 0));
     ctx.fillStyle = grad;
     ctx.fill();
+
+    // İç kuyruk (beyaz çekirdek, parlak)
+    ctx.beginPath();
+    const innerWidth = tailWidth * 0.45;
+    const innerLength = tailLength * 0.6;
+    const innerTailX = bx - dirX * innerLength;
+    const innerTailY = by - dirY * innerLength;
+    ctx.moveTo(backX + perpX * innerWidth, backY + perpY * innerWidth);
+    ctx.lineTo(backX - perpX * innerWidth, backY - perpY * innerWidth);
+    ctx.lineTo(innerTailX, innerTailY);
+    ctx.closePath();
+
+    const grad2 = ctx.createLinearGradient(bx, by, innerTailX, innerTailY);
+    grad2.addColorStop(0, `rgba(255,255,255,${0.6 * speed})`);
+    grad2.addColorStop(0.5, `rgba(255,255,255,${0.2 * speed})`);
+    grad2.addColorStop(1, `rgba(255,255,255,0)`);
+    ctx.fillStyle = grad2;
+    ctx.fill();
+
     ctx.restore();
   }
 
@@ -472,14 +574,17 @@ export class Renderer {
     const bx = this.offsetX + (ball.displayX + 0.5) * s;
     const by = this.offsetY + (ball.displayY + 0.5) * s;
 
+    // Koyu renk versiyonu
+    const darkColor = this.darkenColorHex(color, 60);
+
     if (ball.animating && this.lastBallPx >= 0) {
       const dx = bx - this.lastBallPx;
       const dy = by - this.lastBallPy;
       const speed = Math.sqrt(dx * dx + dy * dy);
 
-      if (speed > 0.3) {
+      if (speed > 0.2) {
         const r = BALL_RADIUS * (s / 60);
-        const count = Math.min(6, 2 + Math.floor(speed / 2));
+        const count = Math.min(8, 3 + Math.floor(speed / 1.5));
         const moveAngle = Math.atan2(dy, dx);
         const reverseAngle = moveAngle + Math.PI;
 
@@ -487,20 +592,22 @@ export class Renderer {
           const coneSpread = (Math.PI * 2) / 3;
           const angle = reverseAngle + (Math.random() - 0.5) * coneSpread;
 
-          const spawnX = bx + Math.cos(reverseAngle) * r * 0.6 + (Math.random() - 0.5) * r * 0.6;
-          const spawnY = by + Math.sin(reverseAngle) * r * 0.6 + (Math.random() - 0.5) * r * 0.6;
+          const spawnX = bx + Math.cos(reverseAngle) * r * 0.5 + (Math.random() - 0.5) * r * 0.8;
+          const spawnY = by + Math.sin(reverseAngle) * r * 0.5 + (Math.random() - 0.5) * r * 0.8;
 
-          const isDust = Math.random() < 0.5;
-          const particleSpeed = 0.4 + Math.random() * 1.2;
+          const isDust = Math.random() < 0.4;
+          const particleSpeed = 0.8 + Math.random() * 2.0;
 
           this.trailParticles.push({
             x: spawnX,
             y: spawnY,
             vx: Math.cos(angle) * particleSpeed,
             vy: Math.sin(angle) * particleSpeed,
-            size: isDust ? 1.5 + Math.random() * 2 : 2 + Math.random() * 3.5,
+            // Parcaciklar daha buyuk
+            size: isDust ? 2.5 + Math.random() * 3 : 3.5 + Math.random() * 5,
             life: 1,
-            color: isDust ? 'rgba(220,210,195,0.8)' : color,
+            // Koyu renkler: toz icin koyu bej, renkli icin koyu level rengi
+            color: isDust ? '#8a7e6e' : darkColor,
           });
         }
       }
@@ -513,15 +620,16 @@ export class Renderer {
       const p = this.trailParticles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.vx *= 0.93;
-      p.vy *= 0.93;
-      p.life -= 0.03;
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      p.life -= 0.025;
       if (p.life <= 0) continue;
 
-      ctx.globalAlpha = p.life * 0.7;
+      // Yuksek opaklık - artik kesinlikle gorunur
+      ctx.globalAlpha = p.life * p.life;
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, p.size * (0.3 + p.life * 0.7), 0, Math.PI * 2);
       ctx.fill();
 
       if (alive !== i) this.trailParticles[alive] = p;
@@ -550,11 +658,11 @@ export class Renderer {
     }
 
     // Squash & stretch: hiz arttikca daha fazla deforme
-    // stretchX: hareket yonunde uzama (1.0 - 1.45)
-    // stretchY: dik yonde basilma (1.0 - 0.65)
-    const stretchAmount = Math.min(speed, 1) * 0.45;
+    // stretchX: hareket yonunde uzama (1.0 - 1.65)
+    // stretchY: dik yonde basilma (1.0 - 0.49)
+    const stretchAmount = Math.min(speed, 1) * 0.65;
     const stretchX = isMoving ? 1.0 + stretchAmount : 1.0;
-    const stretchY = isMoving ? 1.0 - stretchAmount * 0.78 : 1.0;
+    const stretchY = isMoving ? 1.0 - stretchAmount * 0.75 : 1.0;
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -642,6 +750,14 @@ export class Renderer {
     const g = (num >> 8) & 0xff;
     const b = num & 0xff;
     return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  private darkenColorHex(hex: string, amount: number): string {
+    const num = parseInt(hex.slice(1), 16);
+    const r = Math.max(0, ((num >> 16) & 0xff) - amount);
+    const g = Math.max(0, ((num >> 8) & 0xff) - amount);
+    const b = Math.max(0, (num & 0xff) - amount);
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
   }
 
   private easeOutBack(t: number): number {
