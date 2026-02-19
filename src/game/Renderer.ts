@@ -164,37 +164,42 @@ export class Renderer {
   }
 
   // --- Secici kose yuvarlama: path karolari ---
+  // Ic konkav koselerde (diagonal board ise) yuvarlama YAPMA - board halleder
   private getPathCorners(
-    gx: number, gy: number, gw: number, gh: number, grid: number[], r: number
+    gx: number, gy: number, gw: number, gh: number, grid: number[],
+    exterior: Set<number>, r: number
   ): [number, number, number, number] {
     const ip = (x: number, y: number) =>
       x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
+    const ib = (x: number, y: number) =>
+      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === WALL && !exterior.has(y * gw + x);
     return [
-      (!ip(gx - 1, gy) && !ip(gx, gy - 1)) ? r : 0,
-      (!ip(gx + 1, gy) && !ip(gx, gy - 1)) ? r : 0,
-      (!ip(gx + 1, gy) && !ip(gx, gy + 1)) ? r : 0,
-      (!ip(gx - 1, gy) && !ip(gx, gy + 1)) ? r : 0,
+      (!ip(gx - 1, gy) && !ip(gx, gy - 1) && !ib(gx - 1, gy - 1)) ? r : 0,
+      (!ip(gx + 1, gy) && !ip(gx, gy - 1) && !ib(gx + 1, gy - 1)) ? r : 0,
+      (!ip(gx + 1, gy) && !ip(gx, gy + 1) && !ib(gx + 1, gy + 1)) ? r : 0,
+      (!ip(gx - 1, gy) && !ip(gx, gy + 1) && !ib(gx - 1, gy + 1)) ? r : 0,
     ];
   }
 
   // --- Boyali karo kose yuvarlama ---
-  // Sadece HER IKI ortogonal komsu da duvarsa (dis kose) → boardR ile yuvarla
-  // Diger tum durumlarda → 0 (kose yok, duz kenar)
+  // Ic konkav koselerde yuvarlama YAPMA - board'un konkav yuvarlami halleder
   private getPaintedCorners(
-    gx: number, gy: number, gw: number, gh: number, grid: number[], boardR: number
+    gx: number, gy: number, gw: number, gh: number, grid: number[],
+    exterior: Set<number>, boardR: number
   ): [number, number, number, number] {
     const isPath = (x: number, y: number) =>
       x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
-
+    const isBoard = (x: number, y: number) =>
+      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === WALL && !exterior.has(y * gw + x);
     return [
-      (!isPath(gx - 1, gy) && !isPath(gx, gy - 1)) ? boardR : 0,
-      (!isPath(gx + 1, gy) && !isPath(gx, gy - 1)) ? boardR : 0,
-      (!isPath(gx + 1, gy) && !isPath(gx, gy + 1)) ? boardR : 0,
-      (!isPath(gx - 1, gy) && !isPath(gx, gy + 1)) ? boardR : 0,
+      (!isPath(gx - 1, gy) && !isPath(gx, gy - 1) && !isBoard(gx - 1, gy - 1)) ? boardR : 0,
+      (!isPath(gx + 1, gy) && !isPath(gx, gy - 1) && !isBoard(gx + 1, gy - 1)) ? boardR : 0,
+      (!isPath(gx + 1, gy) && !isPath(gx, gy + 1) && !isBoard(gx + 1, gy + 1)) ? boardR : 0,
+      (!isPath(gx - 1, gy) && !isPath(gx, gy + 1) && !isBoard(gx - 1, gy + 1)) ? boardR : 0,
     ];
   }
 
-  // --- Secici kose yuvarlama: board karolari ---
+  // --- Board koseleri: konveks (+r), konkav (-r), kare (0) ---
   private getBoardCorners(
     gx: number, gy: number, gw: number, gh: number, grid: number[],
     exterior: Set<number>, r: number
@@ -203,15 +208,29 @@ export class Renderer {
       x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === WALL && !exterior.has(y * gw + x);
     const ip = (x: number, y: number) =>
       x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
+
+    // Her kose icin: konveks, konkav veya kare
+    const corner = (dx1: number, dy1: number, dx2: number, dy2: number, ddx: number, ddy: number): number => {
+      const o1 = ib(gx + dx1, gy + dy1); // ortogonal komsu 1 board mu?
+      const o2 = ib(gx + dx2, gy + dy2); // ortogonal komsu 2 board mu?
+      const diag = ip(gx + ddx, gy + ddy); // capraz komsu path mi?
+      if (!o1 && !o2 && !diag) return r;   // konveks (dis kose)
+      if (o1 && o2 && diag) return -r;     // konkav (ic kose)
+      return 0;                              // kare (duz kenar)
+    };
+
     return [
-      (!ib(gx - 1, gy) && !ib(gx, gy - 1) && !ip(gx - 1, gy - 1)) ? r : 0,
-      (!ib(gx + 1, gy) && !ib(gx, gy - 1) && !ip(gx + 1, gy - 1)) ? r : 0,
-      (!ib(gx + 1, gy) && !ib(gx, gy + 1) && !ip(gx + 1, gy + 1)) ? r : 0,
-      (!ib(gx - 1, gy) && !ib(gx, gy + 1) && !ip(gx - 1, gy + 1)) ? r : 0,
+      corner(-1, 0, 0, -1, -1, -1), // Sol-ust
+      corner(1, 0, 0, -1, 1, -1),   // Sag-ust
+      corner(1, 0, 0, 1, 1, 1),     // Sag-alt
+      corner(-1, 0, 0, 1, -1, 1),   // Sol-alt
     ];
   }
 
-  // --- Secici yuvarlak dikdortgen ---
+  // --- Secici yuvarlak dikdortgen (konveks + konkav destek) ---
+  // Pozitif deger = konveks (dis yuvarlama)
+  // Negatif deger = konkav (ic yuvarlama - board icin)
+  // Sifir = kare kose
   private fillSelectiveRound(
     ctx: CanvasRenderingContext2D,
     x: number, y: number, w: number, h: number,
@@ -222,15 +241,59 @@ export class Renderer {
       return;
     }
     ctx.beginPath();
-    ctx.moveTo(x + tl, y);
-    if (tr > 0) { ctx.lineTo(x + w - tr, y); ctx.arcTo(x + w, y, x + w, y + tr, tr); }
-    else ctx.lineTo(x + w, y);
-    if (br > 0) { ctx.lineTo(x + w, y + h - br); ctx.arcTo(x + w, y + h, x + w - br, y + h, br); }
-    else ctx.lineTo(x + w, y + h);
-    if (bl > 0) { ctx.lineTo(x + bl, y + h); ctx.arcTo(x, y + h, x, y + h - bl, bl); }
-    else ctx.lineTo(x, y + h);
-    if (tl > 0) { ctx.lineTo(x, y + tl); ctx.arcTo(x, y, x + tl, y, tl); }
-    else ctx.lineTo(x, y);
+
+    // Sol-ust kose baslangic
+    const atl = Math.abs(tl);
+    if (tl !== 0) ctx.moveTo(x + atl, y);
+    else ctx.moveTo(x, y);
+
+    // Ust kenar → Sag-ust kose
+    const atr = Math.abs(tr);
+    if (tr > 0) {
+      ctx.lineTo(x + w - atr, y);
+      ctx.arcTo(x + w, y, x + w, y + atr, atr);
+    } else if (tr < 0) {
+      ctx.lineTo(x + w - atr, y);
+      ctx.arc(x + w, y, atr, Math.PI, Math.PI / 2, true);
+    } else {
+      ctx.lineTo(x + w, y);
+    }
+
+    // Sag kenar → Sag-alt kose
+    const abr = Math.abs(br);
+    if (br > 0) {
+      ctx.lineTo(x + w, y + h - abr);
+      ctx.arcTo(x + w, y + h, x + w - abr, y + h, abr);
+    } else if (br < 0) {
+      ctx.lineTo(x + w, y + h - abr);
+      ctx.arc(x + w, y + h, abr, Math.PI * 1.5, Math.PI, true);
+    } else {
+      ctx.lineTo(x + w, y + h);
+    }
+
+    // Alt kenar → Sol-alt kose
+    const abl = Math.abs(bl);
+    if (bl > 0) {
+      ctx.lineTo(x + abl, y + h);
+      ctx.arcTo(x, y + h, x, y + h - abl, abl);
+    } else if (bl < 0) {
+      ctx.lineTo(x + abl, y + h);
+      ctx.arc(x, y + h, abl, 0, Math.PI * 1.5, true);
+    } else {
+      ctx.lineTo(x, y + h);
+    }
+
+    // Sol kenar → Sol-ust kose (kapaniş)
+    if (tl > 0) {
+      ctx.lineTo(x, y + atl);
+      ctx.arcTo(x, y, x + atl, y, atl);
+    } else if (tl < 0) {
+      ctx.lineTo(x, y + atl);
+      ctx.arc(x, y, atl, Math.PI / 2, 0, true);
+    } else {
+      ctx.lineTo(x, y);
+    }
+
     ctx.closePath();
     ctx.fill();
   }
@@ -282,17 +345,13 @@ export class Renderer {
       }
     }
 
-    // Ic kose dolgulari: board'un ic yuzeylerini yuvarlatma
-    // 3 board + 1 path olan junction koselerine path renginde ceyrek daire ciz
-    this.drawInnerCornerFills(sCtx, gw, gh, grid, exterior, s, boardR, pathFill);
-
     // Path karolari
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (grid[y * gw + x] !== PATH) continue;
         const px = this.offsetX + x * s;
         const py = this.offsetY + y * s;
-        const [tl, tr, br, bl] = this.getPathCorners(x, y, gw, gh, grid, pathR);
+        const [tl, tr, br, bl] = this.getPathCorners(x, y, gw, gh, grid, exterior, pathR);
         sCtx.fillStyle = pathFill;
         this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
         sCtx.fillStyle = 'rgba(255, 255, 255, 0.15)';
@@ -302,74 +361,6 @@ export class Renderer {
     }
 
     this.staticLevelId = level.data.id;
-  }
-
-  // --- Ic kose dolgulari: board'un ic yuzeylerini yuvarlatma ---
-  // 2x2 junction noktalarinda 3 board + 1 path varsa, path renginde ceyrek daire
-  // cizerek board'un ic kosesini yuvarlatir (konkav kose)
-  private drawInnerCornerFills(
-    ctx: CanvasRenderingContext2D,
-    gw: number, gh: number, grid: number[],
-    exterior: Set<number>, s: number, r: number,
-    pathFill: string | CanvasPattern
-  ) {
-    // Her junction noktasini tara (1,1) ile (gw-1, gh-1) arasi
-    for (let jy = 1; jy < gh; jy++) {
-      for (let jx = 1; jx < gw; jx++) {
-        // Junction etrafindaki 4 hucre
-        const tlIdx = (jy - 1) * gw + (jx - 1);
-        const trIdx = (jy - 1) * gw + jx;
-        const blIdx = jy * gw + (jx - 1);
-        const brIdx = jy * gw + jx;
-
-        const tlBoard = grid[tlIdx] === WALL && !exterior.has(tlIdx);
-        const trBoard = grid[trIdx] === WALL && !exterior.has(trIdx);
-        const blBoard = grid[blIdx] === WALL && !exterior.has(blIdx);
-        const brBoard = grid[brIdx] === WALL && !exterior.has(brIdx);
-
-        // Junction pixel pozisyonu
-        const px = this.offsetX + jx * s;
-        const py = this.offsetY + jy * s;
-
-        ctx.fillStyle = pathFill;
-
-        // 3 board + 1 path → ic konkav kose
-        // Path renginde ceyrek daire cizerek board'un kosesini yuvarlatir
-
-        if (tlBoard && trBoard && blBoard && !brBoard) {
-          // Path sag-altta → sol-ust kadrandaki board kosesini yuvarla
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.arc(px, py, r, Math.PI * 1.5, Math.PI, true);
-          ctx.closePath();
-          ctx.fill();
-        }
-        if (tlBoard && trBoard && !blBoard && brBoard) {
-          // Path sol-altta → sag-ust kadrandaki board kosesini yuvarla
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.arc(px, py, r, 0, Math.PI * 1.5, true);
-          ctx.closePath();
-          ctx.fill();
-        }
-        if (tlBoard && !trBoard && blBoard && brBoard) {
-          // Path sag-ustte → sol-alt kadrandaki board kosesini yuvarla
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.arc(px, py, r, Math.PI, Math.PI * 0.5, true);
-          ctx.closePath();
-          ctx.fill();
-        }
-        if (!tlBoard && trBoard && blBoard && brBoard) {
-          // Path sol-ustte → sag-alt kadrandaki board kosesini yuvarla
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.arc(px, py, r, Math.PI * 0.5, 0, true);
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
-    }
   }
 
   // --- Ic golgeler ---
@@ -468,9 +459,9 @@ export class Renderer {
         const cx = px + s / 2, cy = py + s / 2;
         const sw = s * eased + e * 2, sh = s * eased + e * 2;
 
-        // Sadece dis koseler yuvarlatilir (her iki komsu da duvarsa)
+        // Sadece dis koseler yuvarlatilir (ic konkav koselerde yuvarlama yok)
         const [tl, tr, br, bl] = this.getPaintedCorners(
-          x, y, gw, gh, level.data.grid, boardR * eased
+          x, y, gw, gh, level.data.grid, this.exteriorCache!, boardR * eased
         );
 
         ctx.fillStyle = paintColor;
