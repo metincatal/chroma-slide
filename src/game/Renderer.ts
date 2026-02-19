@@ -60,6 +60,13 @@ export class Renderer {
   // Sarsinti efekti
   private shakeStart = 0;
   private shakeActive = false;
+  private shakeIntensity = 1;
+
+  // Carpma efekti
+  private impactGx = -1;
+  private impactGy = -1;
+  private impactTime = 0;
+  private impactStrength = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -107,9 +114,17 @@ export class Renderer {
     this.staticLevelId = -1;
   }
 
-  triggerShake() {
+  triggerShake(intensity = 1) {
     this.shakeStart = performance.now();
     this.shakeActive = true;
+    this.shakeIntensity = intensity;
+  }
+
+  triggerImpact(gx: number, gy: number, strength = 1) {
+    this.impactGx = gx;
+    this.impactGy = gy;
+    this.impactTime = performance.now();
+    this.impactStrength = strength;
   }
 
   private drawBg(ctx: CanvasRenderingContext2D) {
@@ -267,9 +282,9 @@ export class Renderer {
       }
     }
 
-    // Ic kose dolgulari: board-path bulusma noktalarinda ceyrek daire
-    // 2x2 blok tara: 3 board + 1 path olan koseye board renginde ceyrek daire ciz
-    this.drawInnerCornerFills(sCtx, gw, gh, grid, exterior, s, boardR, boardFill);
+    // Ic kose dolgulari: board'un ic yuzeylerini yuvarlatma
+    // 3 board + 1 path olan junction koselerine path renginde ceyrek daire ciz
+    this.drawInnerCornerFills(sCtx, gw, gh, grid, exterior, s, boardR, pathFill);
 
     // Path karolari
     for (let y = 0; y < gh; y++) {
@@ -289,80 +304,69 @@ export class Renderer {
     this.staticLevelId = level.data.id;
   }
 
-  // --- Ic kose dolgulari: board karolarin ic koselerinde ceyrek daire ---
-  // PATH karo ile board karo bulusma noktalarinda olusan boslugu doldurur
+  // --- Ic kose dolgulari: board'un ic yuzeylerini yuvarlatma ---
+  // 2x2 junction noktalarinda 3 board + 1 path varsa, path renginde ceyrek daire
+  // cizerek board'un ic kosesini yuvarlatir (konkav kose)
   private drawInnerCornerFills(
     ctx: CanvasRenderingContext2D,
     gw: number, gh: number, grid: number[],
     exterior: Set<number>, s: number, r: number,
-    boardFill: string | CanvasPattern
+    pathFill: string | CanvasPattern
   ) {
-    // Her board karo icin: path'e bakan ic koseleri bul
-    // Bir kose "ic kose" = o kosedeki capraz komsu PATH ama iki ortogonal komsu BOARD
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        if (grid[y * gw + x] !== WALL || exterior.has(y * gw + x)) continue;
+    // Her junction noktasini tara (1,1) ile (gw-1, gh-1) arasi
+    for (let jy = 1; jy < gh; jy++) {
+      for (let jx = 1; jx < gw; jx++) {
+        // Junction etrafindaki 4 hucre
+        const tlIdx = (jy - 1) * gw + (jx - 1);
+        const trIdx = (jy - 1) * gw + jx;
+        const blIdx = jy * gw + (jx - 1);
+        const brIdx = jy * gw + jx;
 
-        const px = this.offsetX + x * s;
-        const py = this.offsetY + y * s;
+        const tlBoard = grid[tlIdx] === WALL && !exterior.has(tlIdx);
+        const trBoard = grid[trIdx] === WALL && !exterior.has(trIdx);
+        const blBoard = grid[blIdx] === WALL && !exterior.has(blIdx);
+        const brBoard = grid[brIdx] === WALL && !exterior.has(brIdx);
 
-        // Her 4 kose icin kontrol et
-        // Sol-ust kose: sol komsu board, ust komsu board, sol-ust capraz path
-        const checks: [number, number, number, number, number, number, number, number][] = [
-          // [dx1,dy1 (ortogonal1), dx2,dy2 (ortogonal2), cornerX, cornerY, startAngle offset]
-          // Sol-ust: sol(-1,0) ve ust(0,-1) board, capraz(-1,-1) path → kose (px, py)
-          [-1, 0, 0, -1, -1, -1, 0, 0],
-          // Sag-ust: sag(1,0) ve ust(0,-1) board, capraz(1,-1) path → kose (px+s, py)
-          [1, 0, 0, -1, 1, -1, 1, 0],
-          // Sag-alt: sag(1,0) ve alt(0,1) board, capraz(1,1) path → kose (px+s, py+s)
-          [1, 0, 0, 1, 1, 1, 1, 1],
-          // Sol-alt: sol(-1,0) ve alt(0,1) board, capraz(-1,1) path → kose (px, py+s)
-          [-1, 0, 0, 1, -1, 1, 0, 1],
-        ];
+        // Junction pixel pozisyonu
+        const px = this.offsetX + jx * s;
+        const py = this.offsetY + jy * s;
 
-        for (const [dx1, dy1, dx2, dy2, diagX, diagY, cxOff, cyOff] of checks) {
-          const nx1 = x + dx1, ny1 = y + dy1;
-          const nx2 = x + dx2, ny2 = y + dy2;
-          const ndx = x + diagX, ndy = y + diagY;
+        ctx.fillStyle = pathFill;
 
-          // Ortogonal komsular board olmali (veya sinir disi)
-          const isBoard1 = nx1 < 0 || nx1 >= gw || ny1 < 0 || ny1 >= gh ||
-            (grid[ny1 * gw + nx1] === WALL && !exterior.has(ny1 * gw + nx1));
-          const isBoard2 = nx2 < 0 || nx2 >= gw || ny2 < 0 || ny2 >= gh ||
-            (grid[ny2 * gw + nx2] === WALL && !exterior.has(ny2 * gw + nx2));
+        // 3 board + 1 path → ic konkav kose
+        // Path renginde ceyrek daire cizerek board'un kosesini yuvarlatir
 
-          // Capraz komsu path olmali
-          const isDiagPath = ndx >= 0 && ndx < gw && ndy >= 0 && ndy < gh &&
-            grid[ndy * gw + ndx] === PATH;
-
-          if (isBoard1 && isBoard2 && isDiagPath) {
-            // Bu ic kosede ceyrek daire ciz
-            const cornerX = px + cxOff * s;
-            const cornerY = py + cyOff * s;
-
-            // Hangi yone dogru ceyrek daire cizecegimizi belirle
-            // Arc merkezi kose noktasinda, path'e dogru yay
-            let startAngle = 0;
-            if (cxOff === 0 && cyOff === 0) startAngle = 0;         // sol-ust → sag-alt yay
-            else if (cxOff === 1 && cyOff === 0) startAngle = Math.PI / 2;  // sag-ust → sol-alt yay
-            else if (cxOff === 1 && cyOff === 1) startAngle = Math.PI;      // sag-alt → sol-ust yay
-            else startAngle = Math.PI * 1.5;                                  // sol-alt → sag-ust yay
-
-            ctx.fillStyle = boardFill;
-            ctx.beginPath();
-            ctx.moveTo(cornerX, cornerY);
-            ctx.arc(cornerX, cornerY, r, startAngle, startAngle + Math.PI / 2);
-            ctx.closePath();
-            ctx.fill();
-
-            // Ayni highlight overlay
-            ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
-            ctx.beginPath();
-            ctx.moveTo(cornerX, cornerY);
-            ctx.arc(cornerX, cornerY, r, startAngle, startAngle + Math.PI / 2);
-            ctx.closePath();
-            ctx.fill();
-          }
+        if (tlBoard && trBoard && blBoard && !brBoard) {
+          // Path sag-altta → sol-ust kadrandaki board kosesini yuvarla
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.arc(px, py, r, Math.PI * 1.5, Math.PI, true);
+          ctx.closePath();
+          ctx.fill();
+        }
+        if (tlBoard && trBoard && !blBoard && brBoard) {
+          // Path sol-altta → sag-ust kadrandaki board kosesini yuvarla
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.arc(px, py, r, 0, Math.PI * 1.5, true);
+          ctx.closePath();
+          ctx.fill();
+        }
+        if (tlBoard && !trBoard && blBoard && brBoard) {
+          // Path sag-ustte → sol-alt kadrandaki board kosesini yuvarla
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.arc(px, py, r, Math.PI, Math.PI * 0.5, true);
+          ctx.closePath();
+          ctx.fill();
+        }
+        if (!tlBoard && trBoard && blBoard && brBoard) {
+          // Path sol-ustte → sag-alt kadrandaki board kosesini yuvarla
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.arc(px, py, r, Math.PI * 0.5, 0, true);
+          ctx.closePath();
+          ctx.fill();
         }
       }
     }
@@ -414,16 +418,17 @@ export class Renderer {
     let sx = 0, sy = 0;
     let scaleVal = 1;
     if (this.shakeActive) {
+      const duration = 200 + 80 * this.shakeIntensity;
       const elapsed = performance.now() - this.shakeStart;
-      if (elapsed > 280) {
+      if (elapsed > duration) {
         this.shakeActive = false;
       } else {
-        const t = elapsed / 280;
-        const amp = 6 * (1 - t) * (1 - t);
+        const t = elapsed / duration;
+        const amp = (4 + 2 * this.shakeIntensity) * (1 - t) * (1 - t);
         sx = Math.sin(t * Math.PI * 8) * amp;
         sy = Math.cos(t * Math.PI * 6) * amp * 0.5;
-        if (t < 0.35) {
-          scaleVal = 1.0 + 0.012 * Math.sin((t / 0.35) * Math.PI);
+        if (t < 0.35 && this.shakeIntensity > 0.5) {
+          scaleVal = 1.0 + 0.012 * this.shakeIntensity * Math.sin((t / 0.35) * Math.PI);
         }
       }
     }
@@ -491,7 +496,10 @@ export class Renderer {
     // 5. Top (deforme olarak)
     this.drawBall(ball, paintColor);
 
-    // 6. Konfeti
+    // 6. Carpma efekti
+    this.drawImpactEffect(ctx, level);
+
+    // 7. Konfeti
     if (this.confettiActive) this.updateConfetti();
 
     ctx.restore();
@@ -701,6 +709,47 @@ export class Renderer {
 
     ctx.restore();
     ctx.restore();
+  }
+
+  // --- Carpma efekti: duvara carpmada parlama + halka ---
+  private drawImpactEffect(ctx: CanvasRenderingContext2D, level: Level) {
+    if (this.impactGx < 0) return;
+    const elapsed = performance.now() - this.impactTime;
+    const duration = 350;
+    if (elapsed > duration) { this.impactGx = -1; return; }
+
+    const t = elapsed / duration;
+    const s = this.cellSize;
+    const gw = level.data.width;
+    const gh = level.data.height;
+    const gx = this.impactGx;
+    const gy = this.impactGy;
+
+    // Gecerli karo kontrolu
+    if (gx < 0 || gx >= gw || gy < 0 || gy >= gh) { this.impactGx = -1; return; }
+
+    const px = this.offsetX + gx * s;
+    const py = this.offsetY + gy * s;
+    const cx = px + s / 2;
+    const cy = py + s / 2;
+
+    // Beyaz parlama (flash) - hizli sonum
+    const flashAlpha = Math.pow(1 - t, 3) * 0.4 * this.impactStrength;
+    if (flashAlpha > 0.01) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+      ctx.fillRect(px, py, s, s);
+    }
+
+    // Genisleyen halka (ripple)
+    const ringRadius = s * 0.2 + t * s * 0.7;
+    const ringAlpha = Math.pow(1 - t, 2) * 0.35 * this.impactStrength;
+    if (ringAlpha > 0.01) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${ringAlpha})`;
+      ctx.lineWidth = (1 - t) * 3 + 1;
+      ctx.stroke();
+    }
   }
 
   // --- Konfeti ---

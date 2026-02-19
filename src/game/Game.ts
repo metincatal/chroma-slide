@@ -5,7 +5,7 @@ import { Level } from './Level';
 import { ScreenManager, Screen } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
 import { getUndoCount } from '../levels/procedural';
-import { Direction, GameMode, LEVEL_COLORS } from '../utils/constants';
+import { Direction, DIRECTIONS, GameMode, LEVEL_COLORS } from '../utils/constants';
 import { saveProgress, saveTheme, getSelectedTheme } from '../utils/storage';
 import { getThemeById, ThemeConfig } from '../utils/themes';
 import { playSlide, playComplete, playBump, resumeAudio } from '../utils/sound';
@@ -163,7 +163,12 @@ export class Game {
 
     if (!result) {
       playBump();
-      this.renderer.triggerShake();
+      // Carpilan duvar karosunu bul
+      const dir = DIRECTIONS[direction];
+      const wallGx = this.ball.x + dir.dx;
+      const wallGy = this.ball.y + dir.dy;
+      this.renderer.triggerImpact(wallGx, wallGy, 1.0);
+      this.renderer.triggerShake(1.0);
       if (this.moveQueue.length > 0) {
         const next = this.moveQueue.shift()!;
         this.executeMove(next);
@@ -241,6 +246,12 @@ export class Game {
     }
 
     if (!this.ball.animating && paintedTiles) {
+      // Slide bitti - duvara carpma efekti (hafif)
+      const wallGx = this.ball.x + this.ball.moveDirX;
+      const wallGy = this.ball.y + this.ball.moveDirY;
+      this.renderer.triggerImpact(wallGx, wallGy, 0.4);
+      this.renderer.triggerShake(0.25);
+
       if (this.currentLevel.isComplete()) {
         this.onLevelComplete();
       } else if (this.moveQueue.length > 0) {
