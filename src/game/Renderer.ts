@@ -234,8 +234,9 @@ export class Renderer {
     const sCtx = this.staticCtx!;
     const { width: gw, height: gh, grid } = level.data;
     const s = this.cellSize;
-    const boardR = Math.max(3, s * 0.28);
-    const pathR = Math.max(3, s * 0.38);
+    // Board koseleri daha dairesel (0.28 → 0.48)
+    const boardR = Math.max(3, s * 0.48);
+    const pathR = Math.max(3, s * 0.48);
     const exterior = this.computeExterior(level);
     const e = 0.25;
 
@@ -364,7 +365,7 @@ export class Renderer {
     const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
     const paintColor = LEVEL_COLORS[colorIdx];
     const s = this.cellSize;
-    const boardR = Math.max(3, s * 0.28);
+    const boardR = Math.max(3, s * 0.48);
     const e = 0.5; // Anti-alias overlap - boyali karolar icin biraz daha buyuk
 
     for (let y = 0; y < gh; y++) {
@@ -427,19 +428,20 @@ export class Renderer {
     if (dirX === 0 && dirY === 0) return;
 
     const speed = ball.speed;
-    // Kuyruk uzunlugu: hiza orantili, 2-5 karo arasi
-    const tailLength = r * 2 + speed * s * 3;
+    // Kuyruk uzunlugu: hiza orantili, belirgin uzun
+    const tailLength = r * 3 + speed * s * 5;
     // Kuyruk kalınligi: topun yaricapi kadar baslayip sifira daralir
-    const tailWidth = r * 0.9;
+    const tailWidth = r * 1.1;
 
     // Topun arka tarafi (hareketin tersi)
     const tailX = bx - dirX * tailLength;
     const tailY = by - dirY * tailLength;
 
-    // Gradient olustur
+    // Gradient olustur - daha opak
     const grad = ctx.createLinearGradient(bx, by, tailX, tailY);
-    grad.addColorStop(0, this.colorWithAlpha(color, 0.35 * speed));
-    grad.addColorStop(0.3, this.colorWithAlpha(color, 0.15 * speed));
+    grad.addColorStop(0, this.colorWithAlpha(color, 0.5 * speed));
+    grad.addColorStop(0.2, this.colorWithAlpha(color, 0.3 * speed));
+    grad.addColorStop(0.6, this.colorWithAlpha(color, 0.1 * speed));
     grad.addColorStop(1, this.colorWithAlpha(color, 0));
 
     ctx.save();
@@ -548,11 +550,11 @@ export class Renderer {
     }
 
     // Squash & stretch: hiz arttikca daha fazla deforme
-    // stretchX: hareket yonunde uzama (1.0 - 1.35)
-    // stretchY: dik yonde basilma (1.0 - 0.72)
-    const stretchAmount = Math.min(speed, 1) * 0.35;
+    // stretchX: hareket yonunde uzama (1.0 - 1.45)
+    // stretchY: dik yonde basilma (1.0 - 0.65)
+    const stretchAmount = Math.min(speed, 1) * 0.45;
     const stretchX = isMoving ? 1.0 + stretchAmount : 1.0;
-    const stretchY = isMoving ? 1.0 - stretchAmount * 0.8 : 1.0;
+    const stretchY = isMoving ? 1.0 - stretchAmount * 0.78 : 1.0;
 
     ctx.save();
     ctx.translate(cx, cy);

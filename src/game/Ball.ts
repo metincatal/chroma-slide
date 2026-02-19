@@ -102,8 +102,10 @@ export class Ball {
       this.displayY = last.y;
     }
 
-    // Hiz orani: ortada max, baslangic/bitte 0 (easing turevi)
-    this.speed = t < 1 ? Math.max(0, 1 - Math.abs(2 * t - 0.3)) : 0;
+    // Hiz orani: easeOutQuart'in turevi → baslangicta max, sona dogru azalir
+    // Turev: 4*(1-t)^3, normalize edilmis hali (max=1 icin /4 gerekli ama clamp ediyoruz)
+    // Animasyonun buyuk bolumunde yuksek kalir, son %20'de duser
+    this.speed = t < 1 ? Math.min(1, Math.pow(1 - t, 2) * 2.5) : 0;
 
     if (t >= 1) {
       this.animating = false;
