@@ -44,16 +44,16 @@ export const LEVEL_COLORS = [
 // Boya gradient ciftleri: [baslangic, bitis]
 // Her seviye colorIndex'e gore bir cift secer
 export const PAINT_GRADIENTS: readonly [string, string][] = [
-  ['#fce4b8', '#d96850'],  // sari → kirmizi-turuncu
-  ['#b8f0d8', '#3888a8'],  // mint → koyu mavi
-  ['#f0b8d8', '#9040a0'],  // pembe → mor
-  ['#b8daf0', '#4060b0'],  // acik mavi → koyu mavi
-  ['#d0f0b0', '#509030'],  // lime → yesil
-  ['#f0c8b0', '#b84040'],  // seftali → kirmizi
-  ['#d8c8f0', '#6040a0'],  // lavanta → koyu mor
-  ['#f8e0b8', '#a06020'],  // bal → amber
-  ['#b8f0e0', '#308878'],  // aqua → teal
-  ['#f0d0c0', '#c06848'],  // mercan → koyu mercan
+  ['#fce4b8', '#f0a080'],  // sari → yumusak somon
+  ['#b8f0d8', '#78c8e0'],  // mint → acik gok mavisi
+  ['#f0b8d8', '#e090c0'],  // pembe → orkide
+  ['#b8daf0', '#90b0e8'],  // acik mavi → orta mavi
+  ['#d0f0b0', '#90d880'],  // lime → orta yesil
+  ['#f0c8b0', '#e89888'],  // seftali → acik mercan
+  ['#d8c8f0', '#c0a0e8'],  // lavanta → orta mor
+  ['#f8e0b8', '#e8c078'],  // bal → sicak altin
+  ['#b8f0e0', '#78d0b8'],  // aqua → orta teal
+  ['#f0d0c0', '#e8b098'],  // mercan → yumusak terracotta
 ] as const;
 
 // Boyutlar

@@ -158,103 +158,111 @@ export class Renderer {
   }
 
   // ============================================================
-  // BOARD KOSE HESABI: konveks (+r), konkav (-r), kare (0)
+  // KOSE YUVARLAMA: Board tam dikdortgen cizildikten sonra uygulanir
+  // Konveks: path dolgusu + board ceyrek daire → dis kose yuvarlanir
+  // Konkav: board ceyrek daire path kosesine → ic kose yuvarlanir
   // ============================================================
-  private getBoardCorners(
-    gx: number, gy: number, gw: number, gh: number, grid: number[],
-    exterior: Set<number>, r: number
-  ): [number, number, number, number] {
+  private applyCornerRounding(
+    ctx: CanvasRenderingContext2D, grid: number[],
+    gw: number, gh: number, exterior: Set<number>,
+    r: number, boardFill: string | CanvasPattern, pathFill: string | CanvasPattern
+  ) {
+    const s = this.cellSize;
+    const e = 0.5;
     const ib = (x: number, y: number) =>
-      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === WALL && !exterior.has(y * gw + x);
-    const ip = (x: number, y: number) =>
-      x >= 0 && x < gw && y >= 0 && y < gh && grid[y * gw + x] === PATH;
+      x >= 0 && x < gw && y >= 0 && y < gh &&
+      grid[y * gw + x] === WALL && !exterior.has(y * gw + x);
 
-    const corner = (dx1: number, dy1: number, dx2: number, dy2: number, ddx: number, ddy: number): number => {
-      const o1 = ib(gx + dx1, gy + dy1);
-      const o2 = ib(gx + dx2, gy + dy2);
-      const diag = ip(gx + ddx, gy + ddy);
-      // Konkav: her iki ortogonal board + capraz path
-      if (o1 && o2 && diag) return -r;
-      // Konveks: her iki ortogonal da board degil (gercek dis kose)
-      if (!o1 && !o2) return r;
-      // Kare: her iki ortogonal board, capraz board (ic alan)
-      return 0;
-    };
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        if (grid[y * gw + x] !== WALL || exterior.has(y * gw + x)) continue;
+        const px = this.offsetX + x * s;
+        const py = this.offsetY + y * s;
+        const L = ib(x - 1, y), R = ib(x + 1, y);
+        const T = ib(x, y - 1), B = ib(x, y + 1);
 
-    return [
-      corner(-1, 0, 0, -1, -1, -1),
-      corner(1, 0, 0, -1, 1, -1),
-      corner(1, 0, 0, 1, 1, 1),
-      corner(-1, 0, 0, 1, -1, 1),
-    ];
+        // Sol-ust
+        if (!L && !T) this.drawConvexCorner(ctx, px, py, s, r, e, 'tl', pathFill, boardFill);
+        else if (L && T && !ib(x - 1, y - 1)) this.drawConcaveCorner(ctx, px, py, r, 'tl', boardFill);
+        // Sag-ust
+        if (!R && !T) this.drawConvexCorner(ctx, px, py, s, r, e, 'tr', pathFill, boardFill);
+        else if (R && T && !ib(x + 1, y - 1)) this.drawConcaveCorner(ctx, px + s, py, r, 'tr', boardFill);
+        // Sag-alt
+        if (!R && !B) this.drawConvexCorner(ctx, px, py, s, r, e, 'br', pathFill, boardFill);
+        else if (R && B && !ib(x + 1, y + 1)) this.drawConcaveCorner(ctx, px + s, py + s, r, 'br', boardFill);
+        // Sol-alt
+        if (!L && !B) this.drawConvexCorner(ctx, px, py, s, r, e, 'bl', pathFill, boardFill);
+        else if (L && B && !ib(x - 1, y + 1)) this.drawConcaveCorner(ctx, px, py + s, r, 'bl', boardFill);
+      }
+    }
   }
 
-  // ============================================================
-  // KONVEKS + KONKAV KOSE DESTEKLI DOLGU
-  // Pozitif = konveks (dis), negatif = konkav (ic), 0 = kare
-  // ============================================================
-  private fillSelectiveRound(
+  private drawConvexCorner(
     ctx: CanvasRenderingContext2D,
-    x: number, y: number, w: number, h: number,
-    tl: number, tr: number, br: number, bl: number
+    px: number, py: number, s: number, r: number, e: number,
+    corner: string, pathFill: string | CanvasPattern, boardFill: string | CanvasPattern
   ) {
-    if (tl === 0 && tr === 0 && br === 0 && bl === 0) {
-      ctx.fillRect(x, y, w, h);
-      return;
+    // Kose konumu ve arc merkezi hesapla
+    let rx: number, ry: number, cx: number, cy: number, sa: number, ea: number;
+    if (corner === 'tl') {
+      rx = px - e; ry = py - e; cx = px + r; cy = py + r;
+      sa = Math.PI; ea = Math.PI * 1.5;
+    } else if (corner === 'tr') {
+      rx = px + s - r; ry = py - e; cx = px + s - r; cy = py + r;
+      sa = Math.PI * 1.5; ea = Math.PI * 2;
+    } else if (corner === 'br') {
+      rx = px + s - r; ry = py + s - r; cx = px + s - r; cy = py + s - r;
+      sa = 0; ea = Math.PI * 0.5;
+    } else {
+      rx = px - e; ry = py + s - r; cx = px + r; cy = py + s - r;
+      sa = Math.PI * 0.5; ea = Math.PI;
     }
+
+    const rSize = r + e;
+
+    // 1. Path dolgusu: kose alanini kapatir
+    ctx.fillStyle = pathFill;
+    ctx.fillRect(rx, ry, rSize, rSize);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(rx, ry, rSize, rSize);
+
+    // 2. Board ceyrek daire: path ustune, yuvarlatilmis kose olusturur
+    ctx.fillStyle = boardFill;
     ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, sa, ea);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, sa, ea);
+    ctx.closePath();
+    ctx.fill();
+  }
 
-    // Sol-ust baslangic
-    const atl = Math.abs(tl);
-    ctx.moveTo(tl !== 0 ? x + atl : x, y);
+  private drawConcaveCorner(
+    ctx: CanvasRenderingContext2D,
+    cx: number, cy: number, r: number,
+    corner: string, boardFill: string | CanvasPattern
+  ) {
+    // Konkav: board ceyrek daire path kosesine uzanir
+    let sa: number, ea: number;
+    if (corner === 'tl') { sa = Math.PI; ea = Math.PI * 1.5; }
+    else if (corner === 'tr') { sa = Math.PI * 1.5; ea = Math.PI * 2; }
+    else if (corner === 'br') { sa = 0; ea = Math.PI * 0.5; }
+    else { sa = Math.PI * 0.5; ea = Math.PI; }
 
-    // Ust kenar → Sag-ust
-    const atr = Math.abs(tr);
-    if (tr > 0) {
-      ctx.lineTo(x + w - atr, y);
-      ctx.arcTo(x + w, y, x + w, y + atr, atr);
-    } else if (tr < 0) {
-      ctx.lineTo(x + w - atr, y);
-      ctx.arc(x + w, y, atr, Math.PI, Math.PI / 2, true);
-    } else {
-      ctx.lineTo(x + w, y);
-    }
-
-    // Sag kenar → Sag-alt
-    const abr = Math.abs(br);
-    if (br > 0) {
-      ctx.lineTo(x + w, y + h - abr);
-      ctx.arcTo(x + w, y + h, x + w - abr, y + h, abr);
-    } else if (br < 0) {
-      ctx.lineTo(x + w, y + h - abr);
-      ctx.arc(x + w, y + h, abr, Math.PI * 1.5, Math.PI, true);
-    } else {
-      ctx.lineTo(x + w, y + h);
-    }
-
-    // Alt kenar → Sol-alt
-    const abl = Math.abs(bl);
-    if (bl > 0) {
-      ctx.lineTo(x + abl, y + h);
-      ctx.arcTo(x, y + h, x, y + h - abl, abl);
-    } else if (bl < 0) {
-      ctx.lineTo(x + abl, y + h);
-      ctx.arc(x, y + h, abl, 0, Math.PI * 1.5, true);
-    } else {
-      ctx.lineTo(x, y + h);
-    }
-
-    // Sol kenar → Sol-ust (kapanis)
-    if (tl > 0) {
-      ctx.lineTo(x, y + atl);
-      ctx.arcTo(x, y, x + atl, y, atl);
-    } else if (tl < 0) {
-      ctx.lineTo(x, y + atl);
-      ctx.arc(x, y, atl, Math.PI / 2, 0, true);
-    } else {
-      ctx.lineTo(x, y);
-    }
-
+    ctx.fillStyle = boardFill;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, sa, ea);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, sa, ea);
     ctx.closePath();
     ctx.fill();
   }
@@ -275,7 +283,7 @@ export class Renderer {
     const sCtx = this.staticCtx!;
     const { width: gw, height: gh, grid } = level.data;
     const s = this.cellSize;
-    const boardR = Math.max(3, s * 0.18);
+    const boardR = Math.max(4, s * 0.30);
     const exterior = this.computeExterior(level);
     const e = 0.5; // Anti-alias overlap
 
@@ -316,21 +324,21 @@ export class Renderer {
       }
     }
 
-    // 3. BOARD karolari: konveks + konkav kose destekli
-    // Board, path'in USTUNE cizilir → board'un yuvarlatilmis kenarlari
-    // alttaki path'i gosterir (beyaz bosluk yok!)
+    // 3. BOARD karolari: tam dikdortgen (kose yuvarlama sonra yapilacak)
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (grid[y * gw + x] !== WALL || exterior.has(y * gw + x)) continue;
         const px = this.offsetX + x * s;
         const py = this.offsetY + y * s;
-        const [tl, tr, br, bl] = this.getBoardCorners(x, y, gw, gh, grid, exterior, boardR);
         sCtx.fillStyle = boardFill;
-        this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
+        sCtx.fillRect(px - e, py - e, s + e * 2, s + e * 2);
         sCtx.fillStyle = 'rgba(200, 220, 240, 0.08)';
-        this.fillSelectiveRound(sCtx, px - e, py - e, s + e * 2, s + e * 2, tl, tr, br, bl);
+        sCtx.fillRect(px - e, py - e, s + e * 2, s + e * 2);
       }
     }
+
+    // 4. Kose yuvarlama: konveks (dis) ve konkav (ic)
+    this.applyCornerRounding(sCtx, grid, gw, gh, exterior, boardR, boardFill, pathFill);
 
     this.staticLevelId = level.data.id;
   }
