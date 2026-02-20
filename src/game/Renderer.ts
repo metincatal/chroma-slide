@@ -175,8 +175,8 @@ export class Renderer {
       const diag = ip(gx + ddx, gy + ddy);
       // Konkav: her iki ortogonal board + capraz path
       if (o1 && o2 && diag) return -r;
-      // Konveks: en az bir ortogonal board degil
-      if (!o1 || !o2) return r;
+      // Konveks: her iki ortogonal da board degil (gercek dis kose)
+      if (!o1 && !o2) return r;
       // Kare: her iki ortogonal board, capraz board (ic alan)
       return 0;
     };
@@ -275,7 +275,7 @@ export class Renderer {
     const sCtx = this.staticCtx!;
     const { width: gw, height: gh, grid } = level.data;
     const s = this.cellSize;
-    const boardR = Math.max(3, s * 0.48);
+    const boardR = Math.max(3, s * 0.18);
     const exterior = this.computeExterior(level);
     const e = 0.5; // Anti-alias overlap
 
