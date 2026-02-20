@@ -41,6 +41,21 @@ export const LEVEL_COLORS = [
   '#b8c8e4',
 ] as const;
 
+// Boya gradient ciftleri: [baslangic, bitis]
+// Her seviye colorIndex'e gore bir cift secer
+export const PAINT_GRADIENTS: readonly [string, string][] = [
+  ['#fce4b8', '#d96850'],  // sari → kirmizi-turuncu
+  ['#b8f0d8', '#3888a8'],  // mint → koyu mavi
+  ['#f0b8d8', '#9040a0'],  // pembe → mor
+  ['#b8daf0', '#4060b0'],  // acik mavi → koyu mavi
+  ['#d0f0b0', '#509030'],  // lime → yesil
+  ['#f0c8b0', '#b84040'],  // seftali → kirmizi
+  ['#d8c8f0', '#6040a0'],  // lavanta → koyu mor
+  ['#f8e0b8', '#a06020'],  // bal → amber
+  ['#b8f0e0', '#308878'],  // aqua → teal
+  ['#f0d0c0', '#c06848'],  // mercan → koyu mercan
+] as const;
+
 // Boyutlar
 export const CELL_SIZE = 60;
 export const BALL_RADIUS = 22;

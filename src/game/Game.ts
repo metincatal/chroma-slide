@@ -5,7 +5,7 @@ import { Level } from './Level';
 import { ScreenManager, Screen } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
 import { getUndoCount } from '../levels/procedural';
-import { Direction, DIRECTIONS, GameMode, LEVEL_COLORS } from '../utils/constants';
+import { Direction, DIRECTIONS, GameMode, LEVEL_COLORS, PAINT_GRADIENTS } from '../utils/constants';
 import { saveProgress, saveTheme, getSelectedTheme } from '../utils/storage';
 import { getThemeById, ThemeConfig } from '../utils/themes';
 import { playSlide, playComplete, playBump, resumeAudio } from '../utils/sound';
@@ -275,11 +275,11 @@ export class Game {
 
     const level = this.currentLevel!;
     const stars = level.calculateStars(this.moves);
-    const colorIdx = level.data.colorIndex % LEVEL_COLORS.length;
+    const colorIdx = level.data.colorIndex % PAINT_GRADIENTS.length;
 
     saveProgress(level.data.id, stars, this.moves, this.currentMode);
     playComplete();
-    this.renderer.startConfetti(LEVEL_COLORS[colorIdx]);
+    this.renderer.startConfetti(PAINT_GRADIENTS[colorIdx][1]);
 
     const nextId = level.data.id + 1;
     setTimeout(() => {

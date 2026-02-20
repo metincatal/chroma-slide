@@ -8,6 +8,9 @@ export class Level {
   paintedCount: number;
   // Boya animasyonu bilgisi
   paintAnimations: Map<string, number> = new Map();
+  // Boya sirasi takibi (gradient icin)
+  paintOrder: Map<string, number> = new Map();
+  paintCounter = 0;
 
   constructor(data: LevelData) {
     this.data = data;
@@ -25,6 +28,11 @@ export class Level {
       this.grid[idx] = PAINTED;
       this.paintedCount++;
       this.paintAnimations.set(`${x},${y}`, performance.now());
+      // Boya sirasi kaydet
+      const key = `${x},${y}`;
+      if (!this.paintOrder.has(key)) {
+        this.paintOrder.set(key, this.paintCounter++);
+      }
       return true;
     }
     return false;
@@ -57,6 +65,7 @@ export class Level {
       this.grid[idx] = PATH;
       this.paintedCount--;
       this.paintAnimations.delete(`${x},${y}`);
+      this.paintOrder.delete(`${x},${y}`);
       return true;
     }
     return false;
@@ -66,6 +75,14 @@ export class Level {
     for (const tile of tiles) {
       this.unpaintTile(tile.x, tile.y);
     }
+  }
+
+  // Boya sirasi normallestirilmis deger (0-1 arasi)
+  getPaintProgress(x: number, y: number): number {
+    const key = `${x},${y}`;
+    const order = this.paintOrder.get(key);
+    if (order === undefined || this.paintCounter <= 1) return 0;
+    return order / (this.paintCounter - 1);
   }
 
   reset(): Level {
