@@ -183,16 +183,16 @@ export class Renderer {
 
         // Sol-ust
         if (!L && !T) this.drawConvexCorner(ctx, px, py, s, r, e, 'tl', pathFill, boardFill);
-        else if (L && T && !ib(x - 1, y - 1)) this.drawConcaveCorner(ctx, px, py, r, 'tl', boardFill);
+        else if (L && T && !ib(x - 1, y - 1)) this.drawConcaveCorner(ctx, px, py, r, 'tl', boardFill, pathFill);
         // Sag-ust
         if (!R && !T) this.drawConvexCorner(ctx, px, py, s, r, e, 'tr', pathFill, boardFill);
-        else if (R && T && !ib(x + 1, y - 1)) this.drawConcaveCorner(ctx, px + s, py, r, 'tr', boardFill);
+        else if (R && T && !ib(x + 1, y - 1)) this.drawConcaveCorner(ctx, px + s, py, r, 'tr', boardFill, pathFill);
         // Sag-alt
         if (!R && !B) this.drawConvexCorner(ctx, px, py, s, r, e, 'br', pathFill, boardFill);
-        else if (R && B && !ib(x + 1, y + 1)) this.drawConcaveCorner(ctx, px + s, py + s, r, 'br', boardFill);
+        else if (R && B && !ib(x + 1, y + 1)) this.drawConcaveCorner(ctx, px + s, py + s, r, 'br', boardFill, pathFill);
         // Sol-alt
         if (!L && !B) this.drawConvexCorner(ctx, px, py, s, r, e, 'bl', pathFill, boardFill);
-        else if (L && B && !ib(x - 1, y + 1)) this.drawConcaveCorner(ctx, px, py + s, r, 'bl', boardFill);
+        else if (L && B && !ib(x - 1, y + 1)) this.drawConcaveCorner(ctx, px, py + s, r, 'bl', boardFill, pathFill);
       }
     }
   }
@@ -244,22 +244,30 @@ export class Renderer {
   private drawConcaveCorner(
     ctx: CanvasRenderingContext2D,
     cx: number, cy: number, r: number,
-    corner: string, boardFill: string | CanvasPattern
+    corner: string, boardFill: string | CanvasPattern, pathFill: string | CanvasPattern
   ) {
-    // Konkav: board ceyrek daire path kosesine uzanir
-    let sa: number, ea: number;
-    if (corner === 'tl') { sa = Math.PI; ea = Math.PI * 1.5; }
-    else if (corner === 'tr') { sa = Math.PI * 1.5; ea = Math.PI * 2; }
-    else if (corner === 'br') { sa = 0; ea = Math.PI * 0.5; }
-    else { sa = Math.PI * 0.5; ea = Math.PI; }
+    // Konkav: board dikdortgen + path ceyrek daire kesim = hilal seklinde board
+    // Board rect konumu: capraz path alanina dogru uzanir
+    let rx: number, ry: number, sa: number, ea: number;
+    if (corner === 'tl') { rx = cx - r; ry = cy - r; sa = Math.PI; ea = Math.PI * 1.5; }
+    else if (corner === 'tr') { rx = cx; ry = cy - r; sa = Math.PI * 1.5; ea = Math.PI * 2; }
+    else if (corner === 'br') { rx = cx; ry = cy; sa = 0; ea = Math.PI * 0.5; }
+    else { rx = cx - r; ry = cy; sa = Math.PI * 0.5; ea = Math.PI; }
 
+    // 1. Board dolgusu: kose alanini doldurur (kare)
     ctx.fillStyle = boardFill;
+    ctx.fillRect(rx, ry, r, r);
+    ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
+    ctx.fillRect(rx, ry, r, r);
+
+    // 2. Path ceyrek daire: board'un buyuk kismini keser, hilal kalir
+    ctx.fillStyle = pathFill;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, sa, ea);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, sa, ea);
@@ -283,7 +291,7 @@ export class Renderer {
     const sCtx = this.staticCtx!;
     const { width: gw, height: gh, grid } = level.data;
     const s = this.cellSize;
-    const boardR = Math.max(4, s * 0.30);
+    const boardR = Math.max(4, s * 0.35);
     const exterior = this.computeExterior(level);
     const e = 0.5; // Anti-alias overlap
 
