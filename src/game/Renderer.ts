@@ -52,7 +52,7 @@ export class Renderer {
   private baseW = 0;
   private baseH = 0;
 
-  // Board katman cache (seffaf, yuvarlatilmis koseler)
+  // Board katman cache (seffaf, duz dikdortgen)
   private boardCanvas: HTMLCanvasElement | null = null;
   private boardCtx: CanvasRenderingContext2D | null = null;
   private boardLevelId = -1;
@@ -151,7 +151,7 @@ export class Renderer {
       for (let x = 0; x < gw; x++) {
         if (level.data.grid[y * gw + x] !== WALL) continue;
         let adj = false;
-        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
           const nx = x + dx, ny = y + dy;
           if (nx >= 0 && nx < gw && ny >= 0 && ny < gh && level.data.grid[ny * gw + nx] === PATH) {
             adj = true; break;
@@ -219,8 +219,8 @@ export class Renderer {
   }
 
   // ============================================================
-  // BOARD KATMAN: seffaf canvas uzerine board + yuvarlatilmis koseler
-  // destination-out ile kesme → alttan path/boya gorunur
+  // BOARD KATMAN: seffaf canvas uzerine board (duz dikdortgen)
+  // alttan path/boya gorunur
   // ============================================================
   private buildBoardLayer(level: Level) {
     if (!this.boardCanvas || this.boardCanvas.width !== this.width || this.boardCanvas.height !== this.height) {
@@ -233,7 +233,6 @@ export class Renderer {
     const ctx = this.boardCtx!;
     const { width: gw, height: gh, grid } = level.data;
     const s = this.cellSize;
-    const r = Math.max(4, s * 0.35);
     const exterior = this.computeExterior(level);
     const e = 0.5;
 
@@ -246,7 +245,7 @@ export class Renderer {
       if (p) boardFill = p;
     }
 
-    // 1. Board karolari: tam dikdortgen
+    // Board karolari: tam dikdortgen (yuvarlatma yok)
     ctx.globalCompositeOperation = 'source-over';
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
@@ -260,122 +259,11 @@ export class Renderer {
       }
     }
 
-    // 2. Kose yuvarlama
-    this.applyBoardCorners(ctx, grid, gw, gh, exterior, r, boardFill);
-
     ctx.globalCompositeOperation = 'source-over';
     this.boardLevelId = level.data.id;
   }
 
-  // ============================================================
-  // BOARD KOSE YUVARLAMA: destination-out ile kesme
-  // ============================================================
-  private applyBoardCorners(
-    ctx: CanvasRenderingContext2D, grid: number[],
-    gw: number, gh: number, exterior: Set<number>,
-    r: number, boardFill: string | CanvasPattern
-  ) {
-    const s = this.cellSize;
-    const e = 0.5;
-    const ib = (x: number, y: number) =>
-      x >= 0 && x < gw && y >= 0 && y < gh &&
-      grid[y * gw + x] === WALL && !exterior.has(y * gw + x);
 
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        if (grid[y * gw + x] !== WALL || exterior.has(y * gw + x)) continue;
-        const px = this.offsetX + x * s;
-        const py = this.offsetY + y * s;
-        const L = ib(x - 1, y), R = ib(x + 1, y);
-        const T = ib(x, y - 1), B = ib(x, y + 1);
-
-        // Konveks koseler (dis): board'dan keserek seffaf yap
-        if (!L && !T) this.cutConvexCorner(ctx, px, py, s, r, e, 'tl', boardFill);
-        if (!R && !T) this.cutConvexCorner(ctx, px, py, s, r, e, 'tr', boardFill);
-        if (!R && !B) this.cutConvexCorner(ctx, px, py, s, r, e, 'br', boardFill);
-        if (!L && !B) this.cutConvexCorner(ctx, px, py, s, r, e, 'bl', boardFill);
-
-        // Konkav koseler (ic): board hilal ekle
-        if (L && T && !ib(x - 1, y - 1)) this.addConcaveCorner(ctx, px, py, r, 'tl', boardFill);
-        if (R && T && !ib(x + 1, y - 1)) this.addConcaveCorner(ctx, px + s, py, r, 'tr', boardFill);
-        if (R && B && !ib(x + 1, y + 1)) this.addConcaveCorner(ctx, px + s, py + s, r, 'br', boardFill);
-        if (L && B && !ib(x - 1, y + 1)) this.addConcaveCorner(ctx, px, py + s, r, 'bl', boardFill);
-      }
-    }
-  }
-
-  // Konveks kose: kose alanini kes, board ceyrek daireyi geri ekle
-  private cutConvexCorner(
-    ctx: CanvasRenderingContext2D,
-    px: number, py: number, s: number, r: number, e: number,
-    corner: string, boardFill: string | CanvasPattern
-  ) {
-    let rx: number, ry: number, cx: number, cy: number, sa: number, ea: number;
-    if (corner === 'tl') {
-      rx = px - e; ry = py - e; cx = px + r; cy = py + r;
-      sa = Math.PI; ea = Math.PI * 1.5;
-    } else if (corner === 'tr') {
-      rx = px + s - r; ry = py - e; cx = px + s - r; cy = py + r;
-      sa = Math.PI * 1.5; ea = Math.PI * 2;
-    } else if (corner === 'br') {
-      rx = px + s - r; ry = py + s - r; cx = px + s - r; cy = py + s - r;
-      sa = 0; ea = Math.PI * 0.5;
-    } else {
-      rx = px - e; ry = py + s - r; cx = px + r; cy = py + s - r;
-      sa = Math.PI * 0.5; ea = Math.PI;
-    }
-
-    const rSize = r + e;
-
-    // 1. Kose alanini kes (seffaf yap)
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0,0,0,1)';
-    ctx.fillRect(rx, ry, rSize, rSize);
-
-    // 2. Board ceyrek daireyi geri ekle
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = boardFill;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, sa, ea);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, sa, ea);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Konkav kose: board dikdortgen ekle, pasta dilimini kes → hilal kalir
-  private addConcaveCorner(
-    ctx: CanvasRenderingContext2D,
-    jx: number, jy: number, r: number,
-    corner: string, boardFill: string | CanvasPattern
-  ) {
-    let rx: number, ry: number, sa: number, ea: number;
-    if (corner === 'tl') { rx = jx - r; ry = jy - r; sa = Math.PI; ea = Math.PI * 1.5; }
-    else if (corner === 'tr') { rx = jx; ry = jy - r; sa = Math.PI * 1.5; ea = Math.PI * 2; }
-    else if (corner === 'br') { rx = jx; ry = jy; sa = 0; ea = Math.PI * 0.5; }
-    else { rx = jx - r; ry = jy; sa = Math.PI * 0.5; ea = Math.PI; }
-
-    // 1. Board dikdortgen ekle
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = boardFill;
-    ctx.fillRect(rx, ry, r, r);
-    ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
-    ctx.fillRect(rx, ry, r, r);
-
-    // 2. Pasta dilimini kes → hilal seklinde board kalir
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0,0,0,1)';
-    ctx.beginPath();
-    ctx.moveTo(jx, jy);
-    ctx.arc(jx, jy, r, sa, ea);
-    ctx.closePath();
-    ctx.fill();
-  }
 
   // --- Ic golgeler ---
   private drawShadows(
@@ -384,7 +272,7 @@ export class Renderer {
     grid: number[], exterior: Set<number>, s: number
   ) {
     const sh = Math.max(3, s * 0.08);
-    for (const [dx, dy, side] of [[0,-1,0],[0,1,1],[-1,0,2],[1,0,3]] as [number,number,number][]) {
+    for (const [dx, dy, side] of [[0, -1, 0], [0, 1, 1], [-1, 0, 2], [1, 0, 3]] as [number, number, number][]) {
       const nx = gx + dx, ny = gy + dy;
       const isWall = nx < 0 || nx >= gw || ny < 0 || ny >= gh ||
         (grid[ny * gw + nx] === WALL && !exterior.has(ny * gw + nx));
@@ -490,8 +378,8 @@ export class Renderer {
       }
     }
 
-    // 3. Board katman (seffaf, yuvarlatilmis koseler)
-    // Board boyanin USTUNDE → seffaf koseler alttan boya/path gosterir
+    // 3. Board katman (duz dikdortgen)
+    // Board boyanin USTUNDE → alttan boya/path gorunur
     if (this.boardCanvas) ctx.drawImage(this.boardCanvas, 0, 0);
 
     // 4. Baslangic noktasi isareti
