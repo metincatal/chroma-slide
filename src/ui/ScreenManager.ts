@@ -1,11 +1,21 @@
 import { getAllStars } from '../utils/storage';
-import { GameMode, LEVEL_COLORS } from '../utils/constants';
+import { GameMode, LEVEL_COLORS, PAINT_GRADIENTS } from '../utils/constants';
 import { THEMES, ThemeConfig } from '../utils/themes';
 import { getSelectedTheme } from '../utils/storage';
 import { getDifficultyTiers, DifficultyTier } from '../levels/procedural';
 import { playClick, resumeAudio } from '../utils/sound';
+import { PlayerData } from '../multiplayer/RoomManager';
 
-export type Screen = 'menu' | 'levels' | 'themes' | 'game';
+export type Screen =
+  | 'menu'
+  | 'levels'
+  | 'themes'
+  | 'game'
+  | 'mp-name'
+  | 'mp-lobby'
+  | 'mp-waiting'
+  | 'mp-game'
+  | 'mp-results';
 
 interface ScreenCallbacks {
   onSelectMode: (mode: GameMode) => void;
@@ -16,6 +26,14 @@ interface ScreenCallbacks {
   onScreenshot: () => void;
   onSelectTheme: (theme: ThemeConfig) => void;
   onShowThemes: () => void;
+  // Multiplayer callbacks (isteğe bağlı — sadece MultiplayerGame geçirir)
+  onMpNameSubmit?: (name: string) => void;
+  onMpCreateRoom?: () => void;
+  onMpJoinRoom?:   (code: string) => void;
+  onMpStartGame?:  (levelId: number) => void;
+  onMpLeave?:      () => void;
+  onMpPlayAgain?:  () => void;
+  onMpBackToMenu?: () => void;
 }
 
 export class ScreenManager {
@@ -26,11 +44,16 @@ export class ScreenManager {
   private currentMode: GameMode;
   private activeTierIndex = 0;
 
-  constructor(overlay: HTMLDivElement, totalLevels: number, callbacks: ScreenCallbacks, initialMode: GameMode = 'thinking') {
-    this.overlay = overlay;
-    this.totalLevels = totalLevels;
-    this.callbacks = callbacks;
-    this.currentMode = initialMode;
+  constructor(
+    overlay: HTMLDivElement,
+    totalLevels: number,
+    callbacks: ScreenCallbacks,
+    initialMode: GameMode = 'thinking'
+  ) {
+    this.overlay      = overlay;
+    this.totalLevels  = totalLevels;
+    this.callbacks    = callbacks;
+    this.currentMode  = initialMode;
   }
 
   show(screen: Screen, data?: Record<string, unknown>) {
@@ -39,45 +62,137 @@ export class ScreenManager {
     this.overlay.innerHTML = '';
 
     switch (screen) {
-      case 'menu':
-        this.showMenu();
-        break;
-      case 'levels':
-        this.activeTierIndex = 0;
-        this.showLevelSelect();
-        break;
-      case 'themes':
-        this.showThemeSelect();
-        break;
+      case 'menu':       this.showMenu();   break;
+      case 'levels':     this.activeTierIndex = 0; this.showLevelSelect(); break;
+      case 'themes':     this.showThemeSelect(); break;
       case 'game':
-        this.showGameHUD(data as { levelId: number; progress: number; mode: GameMode; remainingUndos: number; maxUndos: number });
+        this.showGameHUD(data as {
+          levelId: number; progress: number;
+          mode: GameMode; remainingUndos: number; maxUndos: number;
+        });
+        break;
+      case 'mp-name':    this.showMpName();  break;
+      case 'mp-lobby':   this.showMpLobby(); break;
+      case 'mp-waiting':
+        this.showMpWaiting(
+          (data?.roomCode as string) ?? '',
+          (data?.isHost as boolean)  ?? false,
+          (data?.players as Record<string, PlayerData>) ?? {},
+          (data?.selectedLevel as number) ?? 1,
+          (data?.totalLevels as number)   ?? this.totalLevels
+        );
+        break;
+      case 'mp-game':
+        this.showMpGame(
+          (data?.players as Record<string, PlayerData>) ?? {},
+          (data?.myId as string)    ?? '',
+          (data?.roomCode as string) ?? ''
+        );
+        break;
+      case 'mp-results':
+        this.showMpResults(
+          (data?.players as Record<string, PlayerData>) ?? {},
+          (data?.finalScores as Record<string, number>) ?? {},
+          (data?.myId as string) ?? ''
+        );
         break;
     }
   }
 
-  getScreen(): Screen {
-    return this.currentScreen;
-  }
+  getScreen(): Screen { return this.currentScreen; }
+
+  // -------------------------------------------------------
+  // Tek oyuncu HUD güncelleme
+  // -------------------------------------------------------
 
   updateHUD(progress: number, remainingUndos?: number) {
     const progressFill = this.overlay.querySelector('.progress-fill') as HTMLElement;
     if (progressFill) progressFill.style.width = `${progress * 100}%`;
 
     if (remainingUndos !== undefined) {
-      const badge = this.overlay.querySelector('.undo-badge') as HTMLElement;
+      const badge   = this.overlay.querySelector('.undo-badge') as HTMLElement;
       const undoBtn = this.overlay.querySelector('#btn-undo') as HTMLElement;
       if (badge && this.currentMode === 'thinking') {
         badge.textContent = `${remainingUndos}`;
       }
       if (undoBtn) {
-        if (remainingUndos <= 0) {
-          undoBtn.classList.add('hud-btn-disabled');
-        } else {
-          undoBtn.classList.remove('hud-btn-disabled');
-        }
+        if (remainingUndos <= 0) undoBtn.classList.add('hud-btn-disabled');
+        else                     undoBtn.classList.remove('hud-btn-disabled');
       }
     }
   }
+
+  // -------------------------------------------------------
+  // Çok oyunculu dinamik güncellemeler
+  // -------------------------------------------------------
+
+  updateMpWaiting(
+    players: Record<string, PlayerData>,
+    roomCode: string,
+    isHost: boolean,
+    selectedLevel: number
+  ) {
+    const list = this.overlay.querySelector('#mp-player-list');
+    if (!list) return;
+    list.innerHTML = this.buildPlayerListHtml(players);
+
+    const lvlEl = this.overlay.querySelector('#mp-level-display') as HTMLElement;
+    if (lvlEl) lvlEl.textContent = `Seviye ${selectedLevel}`;
+
+    const startBtn = this.overlay.querySelector('#btn-mp-start') as HTMLButtonElement;
+    if (startBtn) {
+      const connected = Object.values(players).filter((p) => p.connected).length;
+      startBtn.disabled = connected < 2;
+    }
+  }
+
+  updateMpCountdown(remaining: number) {
+    const el = this.overlay.querySelector('#mp-countdown') as HTMLElement;
+    if (!el) return;
+    if (remaining <= 0) {
+      el.style.display = 'none';
+    } else {
+      el.style.display = 'flex';
+      el.textContent   = String(remaining);
+    }
+  }
+
+  updateMpGameScores(
+    players: Record<string, PlayerData>,
+    myId: string,
+    tileColors: Map<string, number>
+  ) {
+    const scoresEl = this.overlay.querySelector('#mp-scores');
+    if (!scoresEl) return;
+
+    // Skorları tileColors'tan hesapla
+    const scores: Record<string, number> = {};
+    for (const [, colorIdx] of tileColors) {
+      for (const [pid, p] of Object.entries(players)) {
+        if (p.colorIndex === colorIdx) {
+          scores[pid] = (scores[pid] ?? 0) + 1;
+          break;
+        }
+      }
+    }
+
+    scoresEl.innerHTML = this.buildScoreChipsHtml(players, scores, myId);
+  }
+
+  showMpError(message: string) {
+    const existing = this.overlay.querySelector('.mp-error-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className   = 'mp-error-toast';
+    toast.textContent = message;
+    this.overlay.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  }
+
+  // -------------------------------------------------------
+  // ANA MENÜ
+  // -------------------------------------------------------
 
   private showMenu() {
     const html = `
@@ -93,6 +208,10 @@ export class ScreenManager {
             <svg class="mode-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8c.7-1 1-2.2 1-3.5C18 2.5 16.6 1 15 1c-1.3 0-2.4.8-2.8 2C11.8 1.8 10.7 1 9.5 1 7.6 1 6 2.5 6 4.5 6 5.8 6.3 7 7 8"/><path d="M3 14c0 4.4 3.6 8 8 8h2c4.4 0 8-3.6 8-8v-1c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v1z"/></svg>
             AKIS MODU
           </button>
+          <button class="btn btn-mode-multi" id="btn-multiplayer">
+            <svg class="mode-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><circle cx="19" cy="7" r="2"/><path d="M23 21v-1a3 3 0 0 0-3-3h-1"/></svg>
+            COK OYUNCULU
+          </button>
         </div>
         <button class="btn btn-secondary" id="btn-themes">TEMALAR</button>
       </div>
@@ -100,44 +219,50 @@ export class ScreenManager {
     this.overlay.innerHTML = html;
 
     this.overlay.querySelector('#btn-thinking')!.addEventListener('click', () => {
-      resumeAudio();
-      playClick();
+      resumeAudio(); playClick();
       this.callbacks.onSelectMode('thinking');
     });
-
     this.overlay.querySelector('#btn-relaxing')!.addEventListener('click', () => {
-      resumeAudio();
-      playClick();
+      resumeAudio(); playClick();
       this.callbacks.onSelectMode('relaxing');
     });
-
     this.overlay.querySelector('#btn-themes')!.addEventListener('click', () => {
-      resumeAudio();
-      playClick();
+      resumeAudio(); playClick();
       this.callbacks.onShowThemes();
+    });
+    this.overlay.querySelector('#btn-multiplayer')!.addEventListener('click', () => {
+      resumeAudio(); playClick();
+      // MultiplayerGame geçirildiyse doğrudan çağır,
+      // yoksa global event ile main.ts'e bildir
+      if (this.callbacks.onMpBackToMenu) {
+        // Zaten multiplayer ScreenManager — bu buton menüden çıkışta kullanılmaz
+      } else {
+        document.dispatchEvent(new CustomEvent('chroma:startMultiplayer'));
+      }
     });
   }
 
+  // -------------------------------------------------------
+  // TEMA SEÇIMI
+  // -------------------------------------------------------
+
   private showThemeSelect() {
     const currentTheme = getSelectedTheme();
-
     let themesHtml = '';
     for (const theme of THEMES) {
-      const isActive = theme.id === currentTheme;
+      const isActive   = theme.id === currentTheme;
       const activeClass = isActive ? ' theme-card-active' : '';
-
       themesHtml += `
         <button class="theme-card${activeClass}" data-theme="${theme.id}">
           <div class="theme-preview">
             <div class="theme-preview-board" style="background: ${theme.previewBoard}"></div>
-            <div class="theme-preview-path" style="background: ${theme.previewPath}"></div>
+            <div class="theme-preview-path"  style="background: ${theme.previewPath}"></div>
           </div>
           <div class="theme-name">${theme.name}</div>
           ${isActive ? '<div class="theme-active-badge">Aktif</div>' : ''}
         </button>
       `;
     }
-
     const html = `
       <div class="theme-screen">
         <button class="back-btn" id="btn-back">
@@ -148,44 +273,41 @@ export class ScreenManager {
       </div>
     `;
     this.overlay.innerHTML = html;
-
     this.overlay.querySelector('#btn-back')!.addEventListener('click', () => {
-      playClick();
-      this.callbacks.onBack();
+      playClick(); this.callbacks.onBack();
     });
-
     this.overlay.querySelectorAll('.theme-card').forEach((btn) => {
       btn.addEventListener('click', () => {
         playClick();
         const themeId = (btn as HTMLElement).dataset.theme!;
-        const theme = THEMES.find(t => t.id === themeId);
+        const theme = THEMES.find((t) => t.id === themeId);
         if (theme) this.callbacks.onSelectTheme(theme);
       });
     });
   }
 
-  private showLevelSelect() {
-    const tiers = getDifficultyTiers(this.currentMode);
-    const modeTitle = this.currentMode === 'thinking' ? 'Taktik' : 'Akis';
+  // -------------------------------------------------------
+  // SEVİYE SEÇIMI
+  // -------------------------------------------------------
 
+  private showLevelSelect() {
+    const tiers     = getDifficultyTiers(this.currentMode);
+    const modeTitle = this.currentMode === 'thinking' ? 'Taktik' : 'Akis';
     const html = `
       <div class="level-screen">
         <button class="back-btn" id="btn-back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
         <div class="level-screen-title">${modeTitle} - Seviye Sec</div>
-        <div class="tier-tabs" id="tier-tabs"></div>
+        <div class="tier-tabs"  id="tier-tabs"></div>
         <div class="level-grid" id="level-grid"></div>
       </div>
     `;
     this.overlay.innerHTML = html;
-
     this.renderTabs(tiers);
     this.renderLevelsForTier(tiers[this.activeTierIndex]);
-
     this.overlay.querySelector('#btn-back')!.addEventListener('click', () => {
-      playClick();
-      this.callbacks.onBack();
+      playClick(); this.callbacks.onBack();
     });
   }
 
@@ -197,7 +319,6 @@ export class ScreenManager {
       tabsHtml += `<button class="tier-tab${activeClass}" data-tier="${i}">${tiers[i].name}</button>`;
     }
     tabsContainer.innerHTML = tabsHtml;
-
     tabsContainer.querySelectorAll('.tier-tab').forEach((btn) => {
       btn.addEventListener('click', () => {
         playClick();
@@ -210,53 +331,45 @@ export class ScreenManager {
 
   private renderLevelsForTier(tier: DifficultyTier) {
     const gridContainer = this.overlay.querySelector('#level-grid')!;
-    const allStars = getAllStars(this.currentMode);
-
-    let levelsHtml = '';
+    const allStars      = getAllStars(this.currentMode);
+    let levelsHtml      = '';
     for (let i = tier.startLevel; i <= tier.endLevel; i++) {
-      const stars = allStars[i] || 0;
+      const stars       = allStars[i] || 0;
       const isCompleted = stars > 0;
-
-      let className = 'level-btn';
-      if (isCompleted) {
-        className += ' completed';
-      } else {
-        className += ' unlocked';
-      }
-
-      const colorIdx = (i - 1) % LEVEL_COLORS.length;
-      const style = !isCompleted
+      let className     = 'level-btn ' + (isCompleted ? 'completed' : 'unlocked');
+      const colorIdx    = (i - 1) % LEVEL_COLORS.length;
+      const style       = !isCompleted
         ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 20)})`
         : '';
-
-      const starsText = isCompleted
+      const starsText   = isCompleted
         ? `<div class="level-stars">${'\u2605'.repeat(stars)}${'\u2606'.repeat(3 - stars)}</div>`
         : '';
-
       levelsHtml += `
         <button class="${className}" data-level="${i}" ${style ? `style="${style}"` : ''}>
-          ${i}
-          ${starsText}
+          ${i}${starsText}
         </button>
       `;
     }
-
     gridContainer.innerHTML = levelsHtml;
-
     gridContainer.querySelectorAll('.level-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         playClick();
-        const levelId = parseInt((btn as HTMLElement).dataset.level!);
-        this.callbacks.onSelectLevel(levelId);
+        this.callbacks.onSelectLevel(parseInt((btn as HTMLElement).dataset.level!));
       });
     });
   }
 
-  private showGameHUD(data: { levelId: number; progress: number; mode: GameMode; remainingUndos: number; maxUndos: number }) {
-    const isThinking = data.mode === 'thinking';
-    const undoBadge = isThinking ? `<span class="undo-badge">${data.remainingUndos}</span>` : '';
-    const undoDisabled = data.remainingUndos <= 0 ? ' hud-btn-disabled' : '';
+  // -------------------------------------------------------
+  // OYUN HUD (tek oyunculu)
+  // -------------------------------------------------------
 
+  private showGameHUD(data: {
+    levelId: number; progress: number;
+    mode: GameMode; remainingUndos: number; maxUndos: number;
+  }) {
+    const isThinking   = data.mode === 'thinking';
+    const undoBadge    = isThinking ? `<span class="undo-badge">${data.remainingUndos}</span>` : '';
+    const undoDisabled = data.remainingUndos <= 0 ? ' hud-btn-disabled' : '';
     const html = `
       <div class="game-hud">
         <div class="hud-left">
@@ -285,33 +398,259 @@ export class ScreenManager {
       </div>
     `;
     this.overlay.innerHTML = html;
+    this.overlay.querySelector('#btn-hud-back')!.addEventListener('click',  () => { playClick(); this.callbacks.onBack(); });
+    this.overlay.querySelector('#btn-undo')!.addEventListener('click',      () => { playClick(); this.callbacks.onUndo(); });
+    this.overlay.querySelector('#btn-restart')!.addEventListener('click',   () => { playClick(); this.callbacks.onRestart(); });
+    this.overlay.querySelector('#btn-screenshot')!.addEventListener('click',() => { playClick(); this.callbacks.onScreenshot(); });
+  }
 
-    this.overlay.querySelector('#btn-hud-back')!.addEventListener('click', () => {
+  // -------------------------------------------------------
+  // MULTIPLAYER EKRANLAR
+  // -------------------------------------------------------
+
+  private showMpName() {
+    const html = `
+      <div class="mp-screen mp-name-screen">
+        <div class="mp-title"><span class="chroma">Chroma</span>Slide</div>
+        <div class="mp-subtitle">Çok Oyunculu</div>
+        <div class="mp-name-form">
+          <input class="mp-name-input" id="mp-name-input" type="text"
+            placeholder="Adınızı girin..." maxlength="12" autocomplete="off" />
+          <button class="btn btn-mode-multi" id="btn-mp-name-submit">DEVAM</button>
+        </div>
+        <button class="btn btn-secondary mp-back-btn" id="btn-mp-back-menu">ANA MENÜ</button>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    const input = this.overlay.querySelector('#mp-name-input') as HTMLInputElement;
+    setTimeout(() => input?.focus(), 100);
+
+    this.overlay.querySelector('#btn-mp-name-submit')!.addEventListener('click', () => {
       playClick();
-      this.callbacks.onBack();
+      const name = input.value.trim();
+      if (!name) { input.classList.add('mp-input-error'); return; }
+      this.callbacks.onMpNameSubmit?.(name);
     });
-
-    this.overlay.querySelector('#btn-undo')!.addEventListener('click', () => {
-      playClick();
-      this.callbacks.onUndo();
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const name = input.value.trim();
+        if (name) this.callbacks.onMpNameSubmit?.(name);
+      }
     });
-
-    this.overlay.querySelector('#btn-restart')!.addEventListener('click', () => {
-      playClick();
-      this.callbacks.onRestart();
-    });
-
-    this.overlay.querySelector('#btn-screenshot')!.addEventListener('click', () => {
-      playClick();
-      this.callbacks.onScreenshot();
+    this.overlay.querySelector('#btn-mp-back-menu')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpBackToMenu?.();
     });
   }
 
+  private showMpLobby() {
+    const html = `
+      <div class="mp-screen mp-lobby-screen">
+        <div class="mp-screen-title">Lobi</div>
+        <div class="mp-lobby-options">
+          <button class="btn btn-mode-multi" id="btn-create-room">ODA OLUŞTUR</button>
+          <div class="mp-divider">veya</div>
+          <div class="mp-join-row">
+            <input class="mp-code-input" id="mp-code-input" type="text"
+              placeholder="XXXX" maxlength="4" autocomplete="off" />
+            <button class="btn btn-mode-thinking" id="btn-join-room">KATIL</button>
+          </div>
+        </div>
+        <button class="btn btn-secondary mp-back-btn" id="btn-mp-back">GERİ</button>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    this.overlay.querySelector('#btn-create-room')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpCreateRoom?.();
+    });
+    this.overlay.querySelector('#btn-join-room')!.addEventListener('click', () => {
+      playClick();
+      const code = (this.overlay.querySelector('#mp-code-input') as HTMLInputElement).value.trim().toUpperCase();
+      if (code.length !== 4) {
+        (this.overlay.querySelector('#mp-code-input') as HTMLElement).classList.add('mp-input-error');
+        return;
+      }
+      this.callbacks.onMpJoinRoom?.(code);
+    });
+    this.overlay.querySelector('#btn-mp-back')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpBackToMenu?.();
+    });
+  }
+
+  private showMpWaiting(
+    roomCode: string,
+    isHost: boolean,
+    players: Record<string, PlayerData>,
+    selectedLevel: number,
+    totalLevels: number
+  ) {
+    const hostControls = isHost ? `
+      <div class="mp-level-picker">
+        <button class="hud-btn" id="btn-level-down">−</button>
+        <span class="mp-level-display" id="mp-level-display">Seviye ${selectedLevel}</span>
+        <button class="hud-btn" id="btn-level-up">+</button>
+      </div>
+      <button class="btn btn-mode-multi" id="btn-mp-start"
+        ${Object.values(players).filter((p) => p.connected).length < 2 ? 'disabled' : ''}>
+        BAŞLAT
+      </button>
+    ` : `<div class="mp-waiting-hint">Host oyunu başlatmayı bekle...</div>`;
+
+    const html = `
+      <div class="mp-screen mp-waiting-screen">
+        <div class="mp-room-code-label">Oda Kodu</div>
+        <div class="mp-room-code">${roomCode}</div>
+        <div class="mp-player-list" id="mp-player-list">
+          ${this.buildPlayerListHtml(players)}
+        </div>
+        ${hostControls}
+        <button class="btn btn-secondary mp-back-btn" id="btn-mp-leave">AYRIL</button>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    if (isHost) {
+      let level = selectedLevel;
+      this.overlay.querySelector('#btn-level-down')!.addEventListener('click', () => {
+        if (level > 1) { level--; (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`; }
+      });
+      this.overlay.querySelector('#btn-level-up')!.addEventListener('click', () => {
+        if (level < totalLevels) { level++; (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`; }
+      });
+      this.overlay.querySelector('#btn-mp-start')!.addEventListener('click', () => {
+        playClick(); this.callbacks.onMpStartGame?.(level);
+      });
+    }
+    this.overlay.querySelector('#btn-mp-leave')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpLeave?.();
+    });
+  }
+
+  private showMpGame(
+    players: Record<string, PlayerData>,
+    myId: string,
+    roomCode: string
+  ) {
+    const scores: Record<string, number> = {};
+    for (const pid of Object.keys(players)) scores[pid] = 0;
+
+    const html = `
+      <div class="mp-game-hud">
+        <div class="mp-scores" id="mp-scores">
+          ${this.buildScoreChipsHtml(players, scores, myId)}
+        </div>
+        <div class="mp-room-tag">${roomCode}</div>
+        <div class="mp-countdown" id="mp-countdown" style="display:none"></div>
+        <button class="hud-btn mp-leave-game-btn" id="btn-mp-leave-game" title="Ayrıl">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    this.overlay.querySelector('#btn-mp-leave-game')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpLeave?.();
+    });
+  }
+
+  private showMpResults(
+    players: Record<string, PlayerData>,
+    finalScores: Record<string, number>,
+    myId: string
+  ) {
+    // Sırala: en yüksek skor → en düşük
+    const sorted = Object.entries(players)
+      .filter(([, p]) => p)
+      .sort(([aid], [bid]) => (finalScores[bid] ?? 0) - (finalScores[aid] ?? 0));
+
+    const medals = ['🥇', '🥈', '🥉', '4.'];
+    let rankHtml = '';
+    sorted.forEach(([pid, p], idx) => {
+      const isMe    = pid === myId;
+      const meClass = isMe ? ' mp-result-me' : '';
+      const [gs, ge] = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
+      rankHtml += `
+        <div class="mp-result-row${meClass}">
+          <span class="mp-result-medal">${medals[idx] ?? ''}</span>
+          <span class="mp-result-dot" style="background:${gs}"></span>
+          <span class="mp-result-name">${p.name}${isMe ? ' (sen)' : ''}</span>
+          <span class="mp-result-score">${finalScores[pid] ?? 0} karo</span>
+        </div>
+      `;
+    });
+
+    const html = `
+      <div class="mp-screen mp-results-screen">
+        <div class="mp-screen-title">Oyun Bitti!</div>
+        <div class="mp-results-list">${rankHtml}</div>
+        <div class="mp-results-actions">
+          <button class="btn btn-mode-multi"   id="btn-mp-again">TEKRAR OYNA</button>
+          <button class="btn btn-secondary"    id="btn-mp-menu">ANA MENÜ</button>
+        </div>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    this.overlay.querySelector('#btn-mp-again')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpPlayAgain?.();
+    });
+    this.overlay.querySelector('#btn-mp-menu')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpBackToMenu?.();
+    });
+  }
+
+  // -------------------------------------------------------
+  // Yardımcı HTML parçaları
+  // -------------------------------------------------------
+
+  private buildPlayerListHtml(players: Record<string, PlayerData>): string {
+    let html = '';
+    for (const [, p] of Object.entries(players)) {
+      if (!p) continue;
+      const [gs] = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
+      const connClass = p.connected ? '' : ' mp-player-disconnected';
+      html += `
+        <div class="mp-player-item${connClass}">
+          <span class="mp-player-dot" style="background:${gs}"></span>
+          <span class="mp-player-name">${p.name}</span>
+          <span class="mp-player-status">${p.connected ? '●' : '○'}</span>
+        </div>
+      `;
+    }
+    return html || '<div class="mp-player-item">Bekleniyor...</div>';
+  }
+
+  private buildScoreChipsHtml(
+    players: Record<string, PlayerData>,
+    scores: Record<string, number>,
+    myId: string
+  ): string {
+    return Object.entries(players)
+      .map(([pid, p]) => {
+        if (!p) return '';
+        const [gs] = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
+        const isMe = pid === myId ? ' mp-score-me' : '';
+        return `
+          <div class="mp-score-chip${isMe}">
+            <span class="mp-score-dot" style="background:${gs}"></span>
+            <span class="mp-score-name">${p.name.slice(0, 6)}</span>
+            <span class="mp-score-val">${scores[pid] ?? 0}</span>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  // -------------------------------------------------------
+  // Yardımcı
+  // -------------------------------------------------------
+
   private darkenColor(hex: string, amount: number): string {
     const num = parseInt(hex.slice(1), 16);
-    const r = Math.max(0, ((num >> 16) & 0xff) - amount);
-    const g = Math.max(0, ((num >> 8) & 0xff) - amount);
-    const b = Math.max(0, (num & 0xff) - amount);
+    const r   = Math.max(0, ((num >> 16) & 0xff) - amount);
+    const g   = Math.max(0, ((num >> 8)  & 0xff) - amount);
+    const b   = Math.max(0, (num & 0xff)          - amount);
     return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
   }
 }

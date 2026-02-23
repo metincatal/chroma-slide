@@ -1,5 +1,5 @@
 import { LevelData } from '../levels/types';
-import { PATH, PAINTED, STAR_THRESHOLDS } from '../utils/constants';
+import { WALL, PATH, PAINTED, STAR_THRESHOLDS } from '../utils/constants';
 
 export class Level {
   data: LevelData;
@@ -83,6 +83,29 @@ export class Level {
     const order = this.paintOrder.get(key);
     if (order === undefined || this.paintCounter <= 1) return 0;
     return order / (this.paintCounter - 1);
+  }
+
+  // Çok oyunculu boya: WALL hariç her karoyu boyar.
+  // PATH → PAINTED geçişinde true döner (yeni karo).
+  // PAINTED karolar için animasyonu yeniler, false döner (sadece sahiplik değişimi).
+  paintTileMultiplayer(x: number, y: number): boolean {
+    const idx = y * this.data.width + x;
+    if (this.grid[idx] === WALL) return false;
+
+    if (this.grid[idx] === PATH) {
+      this.grid[idx] = PAINTED;
+      this.paintedCount++;
+      this.paintAnimations.set(`${x},${y}`, performance.now());
+      const key = `${x},${y}`;
+      if (!this.paintOrder.has(key)) {
+        this.paintOrder.set(key, this.paintCounter++);
+      }
+      return true;
+    }
+
+    // PAINTED — sahiplik değişimi için animasyonu yenile
+    this.paintAnimations.set(`${x},${y}`, performance.now());
+    return false;
   }
 
   reset(): Level {

@@ -292,6 +292,11 @@ export class Game {
     }, 1200);
   }
 
+  stop() {
+    cancelAnimationFrame(this.animFrameId);
+    this.input.setEnabled(false);
+  }
+
   private async takeScreenshot() {
     try {
       const dataUrl = this.canvas.toDataURL('image/png');

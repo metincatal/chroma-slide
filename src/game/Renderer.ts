@@ -538,6 +538,122 @@ export class Renderer {
     ctx.restore();
   }
 
+  // ============================================================
+  // ÇOKLU OYUNCU RENDER
+  // tileColors: "y_x" → colorIndex (sahiplik haritası)
+  // ============================================================
+  renderMultiplayer(
+    level: Level,
+    myBall: Ball,
+    myColorIndex: number,
+    remotePlayers: { ball: Ball; colorIndex: number; name: string }[],
+    tileColors: Map<string, number>
+  ) {
+    const ctx = this.ctx;
+    const { width: gw, height: gh } = level.data;
+    this.calculateLayout(gw, gh);
+
+    if (this.baseLevelId !== level.data.id) this.buildBaseLayer(level);
+
+    // Sarsıntı hesapla (aynı mantık)
+    let sx = 0, sy = 0, scaleVal = 1;
+    if (this.shakeActive) {
+      const duration = 200 + 80 * this.shakeIntensity;
+      const elapsed  = performance.now() - this.shakeStart;
+      if (elapsed > duration) {
+        this.shakeActive = false;
+      } else {
+        const t   = elapsed / duration;
+        const amp = (4 + 2 * this.shakeIntensity) * (1 - t) * (1 - t);
+        sx = Math.sin(t * Math.PI * 8) * amp;
+        sy = Math.cos(t * Math.PI * 6) * amp * 0.5;
+        if (t < 0.35 && this.shakeIntensity > 0.5) {
+          scaleVal = 1.0 + 0.012 * this.shakeIntensity * Math.sin((t / 0.35) * Math.PI);
+        }
+      }
+    }
+
+    ctx.save();
+    if (scaleVal !== 1) {
+      const cx = this.width / 2, cy = this.height / 2;
+      ctx.translate(cx, cy);
+      ctx.scale(scaleVal, scaleVal);
+      ctx.translate(-cx, -cy);
+    }
+    ctx.translate(sx, sy);
+
+    // 1. Base katman
+    if (this.baseCanvas) ctx.drawImage(this.baseCanvas, 0, 0);
+
+    // 2. Boyalı karolar — her karo için sahiplik rengini kullan
+    const now = performance.now();
+    const s   = this.cellSize;
+    const e   = 0.5;
+
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        if (level.grid[y * gw + x] !== PAINTED) continue;
+
+        const px       = this.offsetX + x * s;
+        const py       = this.offsetY + y * s;
+        const animKey  = `${x},${y}`;
+        const animStart = level.paintAnimations.get(animKey);
+        const animT    = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
+        const eased    = this.easeOutBack(animT);
+        const ccx      = px + s / 2, ccy = py + s / 2;
+        const sw       = s * eased + e * 2, sh = s * eased + e * 2;
+
+        // Sahip karonun rengi
+        const tileKey  = `${y}_${x}`; // Firebase formatı: y_x
+        const colorIdx = (tileColors.get(tileKey) ?? myColorIndex) % PAINT_GRADIENTS.length;
+        const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
+        const progress   = level.getPaintProgress(x, y);
+        const paintColor = this.lerpColor(gradStart, gradEnd, progress);
+
+        ctx.fillStyle  = paintColor;
+        ctx.globalAlpha = 0.35 + 0.65 * animT;
+        ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+        ctx.globalAlpha = 1;
+
+        if (animT < 1) {
+          ctx.fillStyle   = '#fff';
+          ctx.globalAlpha = (1 - animT) * 0.3;
+          ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+
+    // 3. Uzak oyuncu topları (arkada)
+    for (const rp of remotePlayers) {
+      const [gs, ge] = PAINT_GRADIENTS[rp.colorIndex % PAINT_GRADIENTS.length];
+      const trailColor = this.lerpColor(gs, ge, 0.5);
+      this.drawSpeedTrail(ctx, rp.ball, trailColor);
+      this.drawBall(rp.ball, trailColor);
+
+      // İsim etiketi
+      if (!rp.ball.animating) {
+        const bx = this.offsetX + (rp.ball.displayX + 0.5) * s;
+        const by = this.offsetY + (rp.ball.displayY + 0.5) * s;
+        ctx.save();
+        ctx.font      = `bold ${Math.max(10, s * 0.22)}px sans-serif`;
+        ctx.fillStyle = trailColor;
+        ctx.textAlign = 'center';
+        ctx.fillText(rp.name.slice(0, 6), bx, by - s * 0.6);
+        ctx.restore();
+      }
+    }
+
+    // 4. Kendi topum (en üstte)
+    const [mgs, mge] = PAINT_GRADIENTS[myColorIndex % PAINT_GRADIENTS.length];
+    const myTrailColor = this.lerpColor(mgs, mge, 0.5);
+    this.drawSpeedTrail(ctx, myBall, myTrailColor);
+    this.updateTrail(ctx, myBall, myTrailColor);
+    this.drawBall(myBall, myTrailColor);
+
+    ctx.restore();
+  }
+
   // --- Baslangic noktasi isareti: nabiz atan konsantrik daireler ---
   private drawStartMarker(ctx: CanvasRenderingContext2D, level: Level, now: number) {
     const s = this.cellSize;
@@ -670,7 +786,7 @@ export class Renderer {
   }
 
   // --- Top: squash & stretch ---
-  private drawBall(ball: Ball, color: string) {
+  drawBall(ball: Ball, color: string) {
     const ctx = this.ctx;
     const s = this.cellSize;
     const cx = this.offsetX + (ball.displayX + 0.5) * s;
