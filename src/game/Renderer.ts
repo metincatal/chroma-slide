@@ -2,7 +2,7 @@ import { Level } from './Level';
 import { Ball } from './Ball';
 import {
   WALL, PATH, PAINTED,
-  COLORS, LEVEL_COLORS, PAINT_GRADIENTS,
+  COLORS, PAINT_GRADIENTS,
   BALL_RADIUS, PAINT_ANIM_DURATION,
 } from '../utils/constants';
 import { ThemeConfig } from '../utils/themes';
@@ -31,10 +31,6 @@ export class Renderer {
   private confetti: Confetti[] = [];
   private confettiActive = false;
 
-  // Exterior cache
-  private exteriorCache: Set<number> | null = null;
-  private cachedLevelId = -1;
-
   // Texture
   private texBoard: HTMLImageElement | null = null;
   private texPath: HTMLImageElement | null = null;
@@ -45,17 +41,12 @@ export class Renderer {
   private boardColor: string = COLORS.BOARD_LIGHT;
   private pathColor: string = COLORS.PATH;
 
-  // Base katman cache (bg + path + golgeler)
+  // Base katman cache (bg + board + path cukurlari + 3D efektler)
   private baseCanvas: HTMLCanvasElement | null = null;
   private baseCtx: CanvasRenderingContext2D | null = null;
   private baseLevelId = -1;
   private baseW = 0;
   private baseH = 0;
-
-  // Board katman cache (seffaf, duz dikdortgen)
-  private boardCanvas: HTMLCanvasElement | null = null;
-  private boardCtx: CanvasRenderingContext2D | null = null;
-  private boardLevelId = -1;
 
   // Parcacik izi
   private trailParticles: TrailParticle[] = [];
@@ -88,7 +79,6 @@ export class Renderer {
     this.texBoard = null;
     this.texPath = null;
     this.baseLevelId = -1;
-    this.boardLevelId = -1;
 
     try {
       const [board, path] = await Promise.all([
@@ -99,7 +89,6 @@ export class Renderer {
       this.texPath = path;
       this.texturesLoaded = true;
       this.baseLevelId = -1;
-      this.boardLevelId = -1;
     } catch (e) {
       console.warn('Texture yuklenemedi, fallback renkler kullaniliyor:', e);
     }
@@ -110,11 +99,10 @@ export class Renderer {
     this.height = height;
     this.dpr = dpr;
     this.baseLevelId = -1;
-    this.boardLevelId = -1;
   }
 
   clear() { this.drawBg(this.ctx); }
-  invalidateStatic() { this.baseLevelId = -1; this.boardLevelId = -1; }
+  invalidateStatic() { this.baseLevelId = -1; }
 
   triggerShake(intensity = 1) {
     this.shakeStart = performance.now();
@@ -142,31 +130,20 @@ export class Renderer {
     this.offsetY = Math.floor((this.height - gridHeight * this.cellSize) / 2) + 30 * this.dpr;
   }
 
-  // --- Exterior hesapla ---
-  private computeExterior(level: Level): Set<number> {
-    if (this.exteriorCache && this.cachedLevelId === level.data.id) return this.exteriorCache;
-    const { width: gw, height: gh } = level.data;
-    const exterior = new Set<number>();
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        if (level.data.grid[y * gw + x] !== WALL) continue;
-        let adj = false;
-        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-          const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && nx < gw && ny >= 0 && ny < gh && level.data.grid[ny * gw + nx] === PATH) {
-            adj = true; break;
-          }
-        }
-        if (!adj) exterior.add(y * gw + x);
-      }
-    }
-    this.exteriorCache = exterior;
-    this.cachedLevelId = level.data.id;
-    return exterior;
+  // --- Hucrenin WALL olup olmadigini kontrol et ---
+  private isWall(grid: number[], gw: number, gh: number, x: number, y: number): boolean {
+    if (x < 0 || x >= gw || y < 0 || y >= gh) return false;
+    return grid[y * gw + x] === WALL;
+  }
+
+  // --- PATH mi kontrol et ---
+  private isPath(grid: number[], gw: number, gh: number, x: number, y: number): boolean {
+    if (x < 0 || x >= gw || y < 0 || y >= gh) return false;
+    return grid[y * gw + x] !== WALL;
   }
 
   // ============================================================
-  // BASE KATMAN: background + path + golgeler (board YOK)
+  // BASE KATMAN: background + board(3D) + path cukurlari
   // ============================================================
   private buildBaseLayer(level: Level) {
     if (!this.baseCanvas || this.baseW !== this.width || this.baseH !== this.height) {
@@ -181,127 +158,290 @@ export class Renderer {
     const ctx = this.baseCtx!;
     const { width: gw, height: gh, grid } = level.data;
     const s = this.cellSize;
-    const exterior = this.computeExterior(level);
-    const e = 0.5;
+    const ox = this.offsetX;
+    const oy = this.offsetY;
+    const r = Math.max(4, s * 0.28); // Kose yaricapi
 
+    // 1. Arka plan
     this.drawBg(ctx);
 
-    let pathFill: string | CanvasPattern = this.pathColor;
-    if (this.texturesLoaded && this.texPath) {
-      const p = ctx.createPattern(this.texPath, 'repeat');
-      if (p) pathFill = p;
-    }
+    // 2. Board golge (alttan, 3D derinlik hissi)
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = s * 0.3;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = s * 0.12;
+    ctx.fillStyle = 'rgba(0,0,0,1)';
+    this.fillBoardShape(ctx, grid, gw, gh, s, ox, oy, r);
+    ctx.restore();
 
-    // PATH karolari: tam dikdortgen
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        if (grid[y * gw + x] !== PATH) continue;
-        const px = this.offsetX + x * s;
-        const py = this.offsetY + y * s;
-        ctx.fillStyle = pathFill;
-        ctx.fillRect(px - e, py - e, s + e * 2, s + e * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.fillRect(px - e, py - e, s + e * 2, s + e * 2);
-      }
-    }
-
-    // Golgeler
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        if (grid[y * gw + x] !== PATH) continue;
-        const px = this.offsetX + x * s;
-        const py = this.offsetY + y * s;
-        this.drawShadows(ctx, px, py, x, y, gw, gh, grid, exterior, s);
-      }
-    }
-
-    this.baseLevelId = level.data.id;
-  }
-
-  // ============================================================
-  // BOARD KATMAN: seffaf canvas uzerine board (duz dikdortgen)
-  // alttan path/boya gorunur
-  // ============================================================
-  private buildBoardLayer(level: Level) {
-    if (!this.boardCanvas || this.boardCanvas.width !== this.width || this.boardCanvas.height !== this.height) {
-      this.boardCanvas = document.createElement('canvas');
-      this.boardCanvas.width = this.width;
-      this.boardCanvas.height = this.height;
-      this.boardCtx = this.boardCanvas.getContext('2d')!;
-    }
-
-    const ctx = this.boardCtx!;
-    const { width: gw, height: gh, grid } = level.data;
-    const s = this.cellSize;
-    const exterior = this.computeExterior(level);
-    const e = 0.5;
-
-    // Seffaf baslangic
-    ctx.clearRect(0, 0, this.width, this.height);
-
+    // 3. Board ana yuzeyi (texture veya duz renk)
+    ctx.save();
     let boardFill: string | CanvasPattern = this.boardColor;
     if (this.texturesLoaded && this.texBoard) {
       const p = ctx.createPattern(this.texBoard, 'repeat');
       if (p) boardFill = p;
     }
+    ctx.fillStyle = boardFill;
+    this.fillBoardShape(ctx, grid, gw, gh, s, ox, oy, r);
+    ctx.restore();
 
-    // Board karolari: tam dikdortgen (yuvarlatma yok)
-    ctx.globalCompositeOperation = 'source-over';
+    // 4. Board ust yuzey highlight (ustten isik)
+    ctx.save();
+    const hlGrad = ctx.createLinearGradient(ox, oy, ox, oy + gh * s);
+    hlGrad.addColorStop(0, 'rgba(255,255,255,0.18)');
+    hlGrad.addColorStop(0.4, 'rgba(255,255,255,0.05)');
+    hlGrad.addColorStop(1, 'rgba(0,0,0,0.08)');
+    ctx.fillStyle = hlGrad;
+    this.fillBoardShape(ctx, grid, gw, gh, s, ox, oy, r);
+    ctx.restore();
+
+    // 5. PATH cukurlari - board seklini clip olarak kullanip, icindeki path'leri ciz
+    // Path hucreleri = cukur/oyuk (guclu golge ile derinlik)
+    this.drawPathChannels(ctx, grid, gw, gh, s, ox, oy);
+
+    // 6. Board kenar vurgusu (kenar cizgisi)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1.5;
+    this.strokeBoardShape(ctx, grid, gw, gh, s, ox, oy, r);
+    ctx.restore();
+
+    this.baseLevelId = level.data.id;
+  }
+
+  // Board seklini doldur (dairesel koseli WALL hucreleri)
+  private fillBoardShape(
+    ctx: CanvasRenderingContext2D,
+    grid: number[], gw: number, gh: number,
+    s: number, ox: number, oy: number, r: number
+  ) {
+    const path = this.createBoardPath2D(grid, gw, gh, s, ox, oy, r);
+    ctx.fill(path);
+  }
+
+  // Board seklini stroke (kenar cizgisi)
+  private strokeBoardShape(
+    ctx: CanvasRenderingContext2D,
+    grid: number[], gw: number, gh: number,
+    s: number, ox: number, oy: number, r: number
+  ) {
+    const path = this.createBoardPath2D(grid, gw, gh, s, ox, oy, r);
+    ctx.stroke(path);
+  }
+
+  // Path2D olustur: tum WALL hucrelerini dairesel koseli olarak birlestir
+  private createBoardPath2D(
+    grid: number[], gw: number, gh: number,
+    s: number, ox: number, oy: number, r: number
+  ): Path2D {
+    const path = new Path2D();
+
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
-        if (grid[y * gw + x] !== WALL || exterior.has(y * gw + x)) continue;
-        const px = this.offsetX + x * s;
-        const py = this.offsetY + y * s;
-        ctx.fillStyle = boardFill;
-        ctx.fillRect(px - e, py - e, s + e * 2, s + e * 2);
-        ctx.fillStyle = 'rgba(200, 220, 240, 0.08)';
-        ctx.fillRect(px - e, py - e, s + e * 2, s + e * 2);
+        if (grid[y * gw + x] !== WALL) continue;
+
+        const px = ox + x * s;
+        const py = oy + y * s;
+
+        // 4 kenar komsu
+        const top = this.isWall(grid, gw, gh, x, y - 1);
+        const bottom = this.isWall(grid, gw, gh, x, y + 1);
+        const left = this.isWall(grid, gw, gh, x - 1, y);
+        const right = this.isWall(grid, gw, gh, x + 1, y);
+
+        // 4 capraz komsu
+        const topLeft = this.isWall(grid, gw, gh, x - 1, y - 1);
+        const topRight = this.isWall(grid, gw, gh, x + 1, y - 1);
+        const bottomLeft = this.isWall(grid, gw, gh, x - 1, y + 1);
+        const bottomRight = this.isWall(grid, gw, gh, x + 1, y + 1);
+
+        // Her hucre icin roundRect benzeri sekil olustur
+        this.addCellToPath(path, px, py, s, r, top, bottom, left, right, topLeft, topRight, bottomLeft, bottomRight);
       }
     }
 
-    ctx.globalCompositeOperation = 'source-over';
-    this.boardLevelId = level.data.id;
+    return path;
   }
 
-
-
-  // --- Ic golgeler ---
-  private drawShadows(
-    ctx: CanvasRenderingContext2D, px: number, py: number,
-    gx: number, gy: number, gw: number, gh: number,
-    grid: number[], exterior: Set<number>, s: number
+  // Tek bir hucreyi Path2D'ye ekle
+  private addCellToPath(
+    path: Path2D,
+    px: number, py: number, s: number, r: number,
+    top: boolean, bottom: boolean, left: boolean, right: boolean,
+    topLeft: boolean, topRight: boolean, bottomLeft: boolean, bottomRight: boolean
   ) {
-    const sh = Math.max(3, s * 0.08);
-    for (const [dx, dy, side] of [[0, -1, 0], [0, 1, 1], [-1, 0, 2], [1, 0, 3]] as [number, number, number][]) {
-      const nx = gx + dx, ny = gy + dy;
-      const isWall = nx < 0 || nx >= gw || ny < 0 || ny >= gh ||
-        (grid[ny * gw + nx] === WALL && !exterior.has(ny * gw + nx));
-      if (!isWall) continue;
-      let grad: CanvasGradient;
-      const a = [0.20, 0.10, 0.16, 0.08][side];
-      if (side === 0) {
-        grad = ctx.createLinearGradient(px, py, px, py + sh);
-        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad; ctx.fillRect(px, py, s, sh);
-      } else if (side === 1) {
-        grad = ctx.createLinearGradient(px, py + s, px, py + s - sh);
-        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad; ctx.fillRect(px, py + s - sh, s, sh);
-      } else if (side === 2) {
-        grad = ctx.createLinearGradient(px, py, px + sh, py);
-        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad; ctx.fillRect(px, py, sh, s);
-      } else {
-        grad = ctx.createLinearGradient(px + s, py, px + s - sh, py);
-        grad.addColorStop(0, `rgba(100,140,180,${a})`); grad.addColorStop(1, 'rgba(100,140,180,0)');
-        ctx.fillStyle = grad; ctx.fillRect(px + s - sh, py, sh, s);
+    // Kose radius hesapla
+    // Konveks: iki kenar da acik (PATH) → yuvarlat
+    // Konkav: iki kenar kapali (WALL) ama capraz acik → ic yuvarlat
+    // Duz: kare bırak
+
+    const tlR = (!top && !left) ? r : (top && left && !topLeft) ? r : 0;
+    const trR = (!top && !right) ? r : (top && right && !topRight) ? r : 0;
+    const blR = (!bottom && !left) ? r : (bottom && left && !bottomLeft) ? r : 0;
+    const brR = (!bottom && !right) ? r : (bottom && right && !bottomRight) ? r : 0;
+
+    const tlConvex = !top && !left;
+    const trConvex = !top && !right;
+    const blConvex = !bottom && !left;
+    const brConvex = !bottom && !right;
+
+    const tlConcave = top && left && !topLeft;
+    const trConcave = top && right && !topRight;
+    const blConcave = bottom && left && !bottomLeft;
+    const brConcave = bottom && right && !bottomRight;
+
+    // Tam dikdortgen ciz (her zaman), sonra koseler icin overlay
+    // Basit yaklasim: her hucre icin roundedRect ciz
+    path.moveTo(px + tlR, py);
+
+    // Ust kenar → sag ust kose
+    path.lineTo(px + s - trR, py);
+    if (trConvex) {
+      path.arc(px + s - trR, py + trR, trR, -Math.PI / 2, 0);
+    } else if (trConcave) {
+      // Konkav: kose noktasina git, arc ciz
+      path.lineTo(px + s, py);
+      path.arc(px + s, py, r, Math.PI, Math.PI / 2, true);
+    } else {
+      path.lineTo(px + s, py);
+    }
+
+    // Sag kenar → sag alt kose
+    path.lineTo(px + s, py + s - brR);
+    if (brConvex) {
+      path.arc(px + s - brR, py + s - brR, brR, 0, Math.PI / 2);
+    } else if (brConcave) {
+      path.lineTo(px + s, py + s);
+      path.arc(px + s, py + s, r, -Math.PI / 2, Math.PI, true);
+    } else {
+      path.lineTo(px + s, py + s);
+    }
+
+    // Alt kenar → sol alt kose
+    path.lineTo(px + blR, py + s);
+    if (blConvex) {
+      path.arc(px + blR, py + s - blR, blR, Math.PI / 2, Math.PI);
+    } else if (blConcave) {
+      path.lineTo(px, py + s);
+      path.arc(px, py + s, r, 0, -Math.PI / 2, true);
+    } else {
+      path.lineTo(px, py + s);
+    }
+
+    // Sol kenar → sol ust kose
+    path.lineTo(px, py + tlR);
+    if (tlConvex) {
+      path.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
+    } else if (tlConcave) {
+      path.lineTo(px, py);
+      path.arc(px, py, r, Math.PI / 2, 0, true);
+    } else {
+      path.lineTo(px, py);
+    }
+
+    path.closePath();
+  }
+
+  // PATH kanallarini ciz (cukur efekti)
+  private drawPathChannels(
+    ctx: CanvasRenderingContext2D,
+    grid: number[], gw: number, gh: number,
+    s: number, ox: number, oy: number
+  ) {
+    // Her path hucresi icin cukur efekti: golge + zemin rengi
+    const pathR = Math.max(2, s * 0.08); // Path kose yaricapi (kucuk)
+
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        if (grid[y * gw + x] === WALL) continue;
+
+        const px = ox + x * s;
+        const py = oy + y * s;
+        const e = 0.5; // Bosluk kapatma
+
+        // Komsulara gore genisletme (bitisik path varsa arada bosluk olmasin)
+        const leftPath = this.isPath(grid, gw, gh, x - 1, y);
+        const rightPath = this.isPath(grid, gw, gh, x + 1, y);
+        const topPath = this.isPath(grid, gw, gh, x, y - 1);
+        const bottomPath = this.isPath(grid, gw, gh, x, y + 1);
+
+        const dx1 = leftPath ? -e : 0;
+        const dx2 = rightPath ? e : 0;
+        const dy1 = topPath ? -e : 0;
+        const dy2 = bottomPath ? e : 0;
+
+        // Cukur arka plani (koyu golge)
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(px + dx1, py + dy1, s + dx2 - dx1, s + dy2 - dy1);
+
+        // Path zemin rengi
+        let pathFill: string | CanvasPattern = this.pathColor;
+        if (this.texturesLoaded && this.texPath) {
+          const p = ctx.createPattern(this.texPath, 'repeat');
+          if (p) pathFill = p;
+        }
+        ctx.fillStyle = pathFill;
+        ctx.fillRect(px + dx1, py + dy1, s + dx2 - dx1, s + dy2 - dy1);
+
+        // Ic golgeler (derinlik hissi) - board'un kenarlarindan gelen golgeler
+        this.drawInnerShadows(ctx, px, py, s, x, y, gw, gh, grid);
       }
     }
   }
+
+  // Path hucresinin ic golgeleri (board kenarlarindan gelen derinlik golgeleri)
+  private drawInnerShadows(
+    ctx: CanvasRenderingContext2D,
+    px: number, py: number, s: number,
+    gx: number, gy: number, gw: number, gh: number,
+    grid: number[]
+  ) {
+    const shadowDepth = Math.max(4, s * 0.15);
+
+    // Ust kenar golge (eger ustte WALL varsa)
+    if (this.isWall(grid, gw, gh, gx, gy - 1)) {
+      const grad = ctx.createLinearGradient(px, py, px, py + shadowDepth);
+      grad.addColorStop(0, 'rgba(0,0,0,0.3)');
+      grad.addColorStop(0.5, 'rgba(0,0,0,0.1)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(px, py, s, shadowDepth);
+    }
+
+    // Sol kenar golge
+    if (this.isWall(grid, gw, gh, gx - 1, gy)) {
+      const grad = ctx.createLinearGradient(px, py, px + shadowDepth, py);
+      grad.addColorStop(0, 'rgba(0,0,0,0.22)');
+      grad.addColorStop(0.5, 'rgba(0,0,0,0.07)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(px, py, shadowDepth, s);
+    }
+
+    // Alt kenar aydinlik (isik altan geliyormuscasina)
+    if (this.isWall(grid, gw, gh, gx, gy + 1)) {
+      const grad = ctx.createLinearGradient(px, py + s, px, py + s - shadowDepth * 0.6);
+      grad.addColorStop(0, 'rgba(0,0,0,0.08)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(px, py + s - shadowDepth * 0.6, s, shadowDepth * 0.6);
+    }
+
+    // Sag kenar hafif golge
+    if (this.isWall(grid, gw, gh, gx + 1, gy)) {
+      const grad = ctx.createLinearGradient(px + s, py, px + s - shadowDepth * 0.5, py);
+      grad.addColorStop(0, 'rgba(0,0,0,0.06)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(px + s - shadowDepth * 0.5, py, shadowDepth * 0.5, s);
+    }
+  }
+
 
   // ============================================================
   // ANA RENDER
-  // Sira: base (bg+path+golge) → boya → board (seffaf) → top/efekt
+  // Sira: base (bg+board+path) → boya → top/efekt
   // ============================================================
   render(level: Level, ball: Ball) {
     const ctx = this.ctx;
@@ -309,7 +449,6 @@ export class Renderer {
     this.calculateLayout(gw, gh);
 
     if (this.baseLevelId !== level.data.id) this.buildBaseLayer(level);
-    if (this.boardLevelId !== level.data.id) this.buildBoardLayer(level);
 
     // Sarsinti hesapla
     let sx = 0, sy = 0, scaleVal = 1;
@@ -338,11 +477,10 @@ export class Renderer {
     }
     ctx.translate(sx, sy);
 
-    // 1. Base katman (bg + path + golgeler)
+    // 1. Base katman (bg + board + path cukurlari + 3D)
     if (this.baseCanvas) ctx.drawImage(this.baseCanvas, 0, 0);
 
-    // 2. Boyali karolar - TAM DIKDORTGEN, gradient renk
-    // Board'un ALTINDA → board seffaf koselerden boya gorunur
+    // 2. Boyali karolar
     const now = performance.now();
     const colorIdx = level.data.colorIndex % PAINT_GRADIENTS.length;
     const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
@@ -378,27 +516,23 @@ export class Renderer {
       }
     }
 
-    // 3. Board katman (duz dikdortgen)
-    // Board boyanin USTUNDE → alttan boya/path gorunur
-    if (this.boardCanvas) ctx.drawImage(this.boardCanvas, 0, 0);
-
-    // 4. Baslangic noktasi isareti
+    // 3. Baslangic noktasi isareti
     this.drawStartMarker(ctx, level, now);
 
-    // 5. Hiz kuyrugu
+    // 4. Hiz kuyrugu
     const trailColor = this.lerpColor(gradStart, gradEnd, 0.5);
     this.drawSpeedTrail(ctx, ball, trailColor);
 
-    // 6. Parcacik izi
+    // 5. Parcacik izi
     this.updateTrail(ctx, ball, trailColor);
 
-    // 7. Top
+    // 6. Top
     this.drawBall(ball, trailColor);
 
-    // 8. Carpma efekti
+    // 7. Carpma efekti
     this.drawImpactEffect(ctx, level);
 
-    // 9. Konfeti
+    // 8. Konfeti
     if (this.confettiActive) this.updateConfetti();
 
     ctx.restore();
