@@ -197,7 +197,9 @@ export class MultiplayerGame {
 
     // Oda durumu değişimini dinle
     this.roomManager.onRoomChange((info) => {
-      this.roomState     = info.state;
+      // roomState'i Firebase'den YAZMA — launchGame()/onGameFinished() yönetir.
+      // onRoomChange tüm oda path'ini dinlediğinden her hamle/karo yazısında
+      // tetiklenir; üzerine yazmak 'playing' state'ini 'countdown'a döndürür.
       this.selectedLevel = info.levelId;
 
       if (info.state === 'countdown' && this.gameStartAt === 0) {
