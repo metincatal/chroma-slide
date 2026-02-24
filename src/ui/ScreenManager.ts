@@ -142,7 +142,7 @@ export class ScreenManager {
     const startBtn = this.overlay.querySelector('#btn-mp-start') as HTMLButtonElement;
     if (startBtn) {
       const connected = Object.values(players).filter((p) => p.connected).length;
-      startBtn.disabled = connected < 2;
+      startBtn.disabled = connected < 1;
     }
   }
 
@@ -446,32 +446,56 @@ export class ScreenManager {
   private showMpLobby() {
     const html = `
       <div class="mp-screen mp-lobby-screen">
-        <div class="mp-screen-title">Lobi</div>
-        <div class="mp-lobby-options">
-          <button class="btn btn-mode-multi" id="btn-create-room">ODA OLUŞTUR</button>
-          <div class="mp-divider">veya</div>
-          <div class="mp-join-row">
+        <div class="mp-lobby-card">
+          <div class="mp-lobby-section">
+            <div class="mp-lobby-section-label">Yeni oyun</div>
+            <button class="btn btn-mode-multi mp-full-btn" id="btn-create-room">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+              ODA OLUŞTUR
+            </button>
+          </div>
+
+          <div class="mp-lobby-divider">
+            <span>veya bir odaya katıl</span>
+          </div>
+
+          <div class="mp-lobby-section">
+            <div class="mp-lobby-section-label">Oda kodu</div>
             <input class="mp-code-input" id="mp-code-input" type="text"
-              placeholder="XXXX" maxlength="4" autocomplete="off" />
-            <button class="btn btn-mode-thinking" id="btn-join-room">KATIL</button>
+              placeholder="X X X X" maxlength="4" autocomplete="off"
+              inputmode="text" />
+            <button class="btn btn-mode-thinking mp-full-btn" id="btn-join-room">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+              ODAYA KATIL
+            </button>
           </div>
         </div>
-        <button class="btn btn-secondary mp-back-btn" id="btn-mp-back">GERİ</button>
+
+        <button class="mp-text-btn" id="btn-mp-back">← Geri</button>
       </div>
     `;
     this.overlay.innerHTML = html;
+
+    const codeInput = this.overlay.querySelector('#mp-code-input') as HTMLInputElement;
 
     this.overlay.querySelector('#btn-create-room')!.addEventListener('click', () => {
       playClick(); this.callbacks.onMpCreateRoom?.();
     });
     this.overlay.querySelector('#btn-join-room')!.addEventListener('click', () => {
       playClick();
-      const code = (this.overlay.querySelector('#mp-code-input') as HTMLInputElement).value.trim().toUpperCase();
+      const code = codeInput.value.trim().toUpperCase();
       if (code.length !== 4) {
-        (this.overlay.querySelector('#mp-code-input') as HTMLElement).classList.add('mp-input-error');
+        codeInput.classList.add('mp-input-error');
+        codeInput.focus();
         return;
       }
       this.callbacks.onMpJoinRoom?.(code);
+    });
+    codeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const code = codeInput.value.trim().toUpperCase();
+        if (code.length === 4) this.callbacks.onMpJoinRoom?.(code);
+      }
     });
     this.overlay.querySelector('#btn-mp-back')!.addEventListener('click', () => {
       playClick(); this.callbacks.onMpBackToMenu?.();
@@ -485,27 +509,43 @@ export class ScreenManager {
     selectedLevel: number,
     totalLevels: number
   ) {
+    const connectedCount = Object.values(players).filter((p) => p.connected).length;
+    const canStart = connectedCount >= 1;
+
     const hostControls = isHost ? `
-      <div class="mp-level-picker">
-        <button class="hud-btn" id="btn-level-down">−</button>
-        <span class="mp-level-display" id="mp-level-display">Seviye ${selectedLevel}</span>
-        <button class="hud-btn" id="btn-level-up">+</button>
+      <div class="mp-waiting-controls">
+        <div class="mp-level-picker">
+          <button class="mp-picker-btn" id="btn-level-down">−</button>
+          <span class="mp-level-display" id="mp-level-display">Seviye ${selectedLevel}</span>
+          <button class="mp-picker-btn" id="btn-level-up">+</button>
+        </div>
+        <button class="btn btn-mode-multi mp-full-btn" id="btn-mp-start" ${canStart ? '' : 'disabled'}>
+          BAŞLAT
+        </button>
+        ${connectedCount < 2 ? '<div class="mp-solo-hint">Tek kişiyle de oynayabilirsin!</div>' : ''}
       </div>
-      <button class="btn btn-mode-multi" id="btn-mp-start"
-        ${Object.values(players).filter((p) => p.connected).length < 2 ? 'disabled' : ''}>
-        BAŞLAT
-      </button>
-    ` : `<div class="mp-waiting-hint">Host oyunu başlatmayı bekle...</div>`;
+    ` : `
+      <div class="mp-waiting-hint">
+        <div class="mp-waiting-dots"><span></span><span></span><span></span></div>
+        Host oyunu başlatmayı bekliyor
+      </div>
+    `;
 
     const html = `
       <div class="mp-screen mp-waiting-screen">
-        <div class="mp-room-code-label">Oda Kodu</div>
-        <div class="mp-room-code">${roomCode}</div>
+        <div class="mp-waiting-top">
+          <div class="mp-room-code-label">Oda Kodu</div>
+          <div class="mp-room-code">${roomCode}</div>
+          <div class="mp-room-code-hint">Bu kodu arkadaşlarınla paylaş</div>
+        </div>
+
         <div class="mp-player-list" id="mp-player-list">
           ${this.buildPlayerListHtml(players)}
         </div>
+
         ${hostControls}
-        <button class="btn btn-secondary mp-back-btn" id="btn-mp-leave">AYRIL</button>
+
+        <button class="mp-text-btn mp-leave-btn" id="btn-mp-leave">Odadan ayrıl</button>
       </div>
     `;
     this.overlay.innerHTML = html;

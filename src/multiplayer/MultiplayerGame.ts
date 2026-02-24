@@ -184,9 +184,11 @@ export class MultiplayerGame {
       this.players = players;
       this.screenManager.updateMpWaiting(players, this.roomCode, this.isHost, this.selectedLevel);
 
-      // Yeterli oyuncu yoksa veya host çıktıysa kontrol
-      const connected = Object.values(players).filter((p) => p.connected);
-      if (connected.length === 0) {
+      // Sadece gerçekten oyuncu VAR ama hepsi disconnected olduysa çık
+      // (boş ilk snapshot'ta tetiklenmesin diye Object.keys kontrolü)
+      const allPlayers = Object.keys(players);
+      const connected  = Object.values(players).filter((p) => p.connected);
+      if (allPlayers.length > 0 && connected.length === 0) {
         this.roomManager.leaveRoom();
         this.cleanup();
         this.onBackToMenu();

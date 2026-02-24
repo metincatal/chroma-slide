@@ -535,9 +535,7 @@ html, body {
    MP-NAME EKRANI
    ============================================================ */
 
-.mp-name-screen {
-  gap: 20px;
-}
+.mp-name-screen { gap: 20px; }
 
 .mp-name-form {
   display: flex;
@@ -545,25 +543,27 @@ html, body {
   align-items: stretch;
   gap: 12px;
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
 }
 
 .mp-name-input {
-  padding: 14px 18px;
-  font-size: 18px;
+  padding: 16px 18px;
+  font-size: 20px;
   font-weight: 600;
-  border: 2px solid rgba(0, 0, 0, 0.1);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.8);
+  border: 2px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.85);
   color: #4a4038;
   outline: none;
   text-align: center;
   letter-spacing: 1px;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
 }
 
 .mp-name-input:focus {
   border-color: #c4b498;
+  box-shadow: 0 2px 16px rgba(196,180,152,0.25);
 }
 
 .mp-input-error {
@@ -583,48 +583,112 @@ html, body {
 
 .mp-lobby-screen {
   gap: 20px;
+  justify-content: center;
 }
 
-.mp-lobby-options {
+.mp-lobby-card {
+  width: 100%;
+  max-width: 340px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 20px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  max-width: 320px;
+  gap: 0;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
 }
 
-.mp-divider {
-  font-size: 13px;
-  color: rgba(106, 96, 88, 0.4);
-  font-weight: 600;
-  letter-spacing: 1px;
-}
-
-.mp-join-row {
+.mp-lobby-section {
   display: flex;
+  flex-direction: column;
   gap: 10px;
-  width: 100%;
+  padding: 16px 0;
 }
 
-.mp-code-input {
+.mp-lobby-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(106, 96, 88, 0.5);
+  text-transform: uppercase;
+}
+
+.mp-lobby-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.mp-lobby-divider::before,
+.mp-lobby-divider::after {
+  content: '';
   flex: 1;
-  padding: 14px 10px;
-  font-size: 22px;
-  font-weight: 800;
-  border: 2px solid rgba(0, 0, 0, 0.1);
+  height: 1px;
+  background: rgba(0,0,0,0.06);
+}
+
+.mp-lobby-divider span {
+  font-size: 12px;
+  color: rgba(106, 96, 88, 0.45);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Tam genişlik buton */
+.mp-full-btn {
+  width: 100% !important;
+  padding: 15px 20px !important;
+  justify-content: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px !important;
+}
+
+/* Kod input — tam genişlik */
+.mp-code-input {
+  width: 100%;
+  padding: 16px 10px;
+  font-size: 28px;
+  font-weight: 900;
+  border: 2px solid rgba(0, 0, 0, 0.08);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.85);
   color: #4a4038;
   outline: none;
   text-align: center;
-  letter-spacing: 6px;
+  letter-spacing: 10px;
   text-transform: uppercase;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
 .mp-code-input:focus {
-  border-color: #c4b498;
+  border-color: #7c9eb8;
+  box-shadow: 0 2px 16px rgba(124,158,184,0.2);
+}
+
+/* Metin buton (geri/ayrıl için) */
+.mp-text-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(106, 96, 88, 0.5);
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 8px;
+  transition: color 0.15s, background 0.15s;
+  letter-spacing: 0.5px;
+}
+
+.mp-text-btn:hover {
+  color: rgba(106, 96, 88, 0.8);
+  background: rgba(0,0,0,0.04);
 }
 
 /* ============================================================
@@ -632,38 +696,53 @@ html, body {
    ============================================================ */
 
 .mp-waiting-screen {
-  gap: 14px;
+  gap: 16px;
+  justify-content: center;
+}
+
+.mp-waiting-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .mp-room-code-label {
   font-size: 11px;
   font-weight: 700;
-  color: rgba(106, 96, 88, 0.5);
+  color: rgba(106, 96, 88, 0.45);
   letter-spacing: 2px;
   text-transform: uppercase;
 }
 
 .mp-room-code {
-  font-size: 44px;
+  font-size: 48px;
   font-weight: 900;
-  letter-spacing: 12px;
-  color: #6a6058;
-  background: rgba(255, 255, 255, 0.7);
-  padding: 10px 24px;
-  border-radius: 16px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  letter-spacing: 14px;
+  color: #5a5048;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 12px 28px 12px 42px; /* letter-spacing telafisi */
+  border-radius: 18px;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.07);
+  line-height: 1;
+}
+
+.mp-room-code-hint {
+  font-size: 12px;
+  color: rgba(106, 96, 88, 0.4);
+  letter-spacing: 0.3px;
 }
 
 .mp-player-list {
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 14px;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 16px;
   padding: 12px;
-  min-height: 80px;
+  min-height: 72px;
 }
 
 .mp-player-item {
@@ -673,50 +752,116 @@ html, body {
   font-size: 15px;
   font-weight: 600;
   color: #6a6058;
-  padding: 4px 0;
+  padding: 6px 4px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.5);
+  padding: 8px 12px;
 }
 
 .mp-player-disconnected {
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
 .mp-player-dot {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow: 0 2px 6px rgba(0,0,0,0.15);
 }
 
-.mp-player-name {
-  flex: 1;
-}
+.mp-player-name { flex: 1; }
 
 .mp-player-status {
   font-size: 10px;
   color: #8db88d;
 }
 
+/* Host kontrolleri */
+.mp-waiting-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 340px;
+}
+
 .mp-level-picker {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin: 4px 0;
+  gap: 0;
+  background: rgba(255,255,255,0.6);
+  border-radius: 14px;
+  overflow: hidden;
+  width: 100%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.mp-picker-btn {
+  border: none;
+  background: none;
+  font-size: 22px;
+  font-weight: 700;
+  color: #6a6058;
+  cursor: pointer;
+  padding: 12px 20px;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.mp-picker-btn:active {
+  background: rgba(0,0,0,0.05);
 }
 
 .mp-level-display {
-  font-size: 17px;
+  flex: 1;
+  font-size: 16px;
   font-weight: 700;
   color: #6a6058;
-  min-width: 100px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+.mp-solo-hint {
+  font-size: 12px;
+  color: rgba(106, 96, 88, 0.45);
   text-align: center;
 }
 
 .mp-waiting-hint {
-  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
   color: rgba(106, 96, 88, 0.5);
-  letter-spacing: 0.5px;
-  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+.mp-waiting-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.mp-waiting-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(106,96,88,0.3);
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+
+.mp-waiting-dots span:nth-child(2) { animation-delay: 0.2s; }
+.mp-waiting-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1;   }
+}
+
+.mp-leave-btn {
+  color: rgba(180, 100, 80, 0.6) !important;
 }
 
 /* ============================================================
