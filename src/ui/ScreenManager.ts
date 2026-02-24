@@ -155,8 +155,8 @@ export class ScreenManager {
     if (!list) return;
     list.innerHTML = this.buildPlayerListHtml(players);
 
-    const lvlEl = this.overlay.querySelector('#mp-level-display') as HTMLElement;
-    if (lvlEl) lvlEl.textContent = `Seviye ${selectedLevel}`;
+    const lvlInput = this.overlay.querySelector('#mp-level-input') as HTMLInputElement;
+    if (lvlInput) lvlInput.value = String(selectedLevel);
 
     const startBtn = this.overlay.querySelector('#btn-mp-start') as HTMLButtonElement;
     if (startBtn) {
@@ -702,7 +702,9 @@ export class ScreenManager {
       <div class="mp-waiting-controls">
         <div class="mp-level-picker">
           <button class="mp-picker-btn" id="btn-level-down">−</button>
-          <span class="mp-level-display" id="mp-level-display">Seviye ${selectedLevel}</span>
+          <input class="mp-level-input" id="mp-level-input" type="number"
+            value="${selectedLevel}" min="1" max="${totalLevels}"
+            inputmode="numeric" />
           <button class="mp-picker-btn" id="btn-level-up">+</button>
         </div>
         <button class="btn btn-mode-multi mp-full-btn" id="btn-mp-start" ${canStart ? '' : 'disabled'}>
@@ -738,21 +740,29 @@ export class ScreenManager {
     this.overlay.innerHTML = html;
 
     if (isHost) {
-      let level = selectedLevel;
+      const levelInput = this.overlay.querySelector('#mp-level-input') as HTMLInputElement;
+
+      const getLevel = () => {
+        const v = parseInt(levelInput.value, 10);
+        if (isNaN(v) || v < 1) return 1;
+        if (v > totalLevels) return totalLevels;
+        return v;
+      };
+      const setLevel = (val: number) => {
+        levelInput.value = String(Math.max(1, Math.min(totalLevels, val)));
+      };
+
       this.overlay.querySelector('#btn-level-down')!.addEventListener('click', () => {
-        if (level > 1) {
-          level--;
-          (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`;
-        }
+        setLevel(getLevel() - 1);
       });
       this.overlay.querySelector('#btn-level-up')!.addEventListener('click', () => {
-        if (level < totalLevels) {
-          level++;
-          (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`;
-        }
+        setLevel(getLevel() + 1);
+      });
+      levelInput.addEventListener('change', () => {
+        setLevel(getLevel());
       });
       this.overlay.querySelector('#btn-mp-start')!.addEventListener('click', () => {
-        playClick(); this.callbacks.onMpStartGame?.(level);
+        playClick(); this.callbacks.onMpStartGame?.(getLevel());
       });
     }
     this.overlay.querySelector('#btn-mp-leave')!.addEventListener('click', () => {

@@ -92,41 +92,41 @@ export class RoomManager {
 
     this.roomCode = code;
 
-    // Oda ve host oyuncuyu aynı anda yaz
-    const updates: Record<string, unknown> = {
-      [`rooms/${code}/state`]:       'waiting',
-      [`rooms/${code}/hostId`]:      this.myId,
-      [`rooms/${code}/levelId`]:     1,
-      [`rooms/${code}/createdAt`]:   Date.now(),
-      [`rooms/${code}/gameStartAt`]: null,
-      [`rooms/${code}/visibility`]:  visibility,
-      [`rooms/${code}/players/${this.myId}`]: {
-        name,
-        colorIndex,
-        connected: true,
-        score:     0,
-      },
-    };
+    // Oda ve host oyuncuyu aynı anda yaz (sadece rooms/ path'i)
+    await update(ref(this.db, `rooms/${code}`), {
+      state:       'waiting',
+      hostId:      this.myId,
+      levelId:     1,
+      createdAt:   Date.now(),
+      gameStartAt: null,
+      visibility,
+    });
 
-    // Açık veya istekli odayı publicRooms'a ekle
-    if (visibility === 'public' || visibility === 'invite') {
-      updates[`publicRooms/${code}`] = {
-        hostName:    name,
-        playerCount: 1,
-        visibility,
-        createdAt:   Date.now(),
-      };
-    }
-
-    await update(ref(this.db), updates);
+    await set(ref(this.db, `rooms/${code}/players/${this.myId}`), {
+      name,
+      colorIndex,
+      connected: true,
+      score:     0,
+    });
 
     // Bağlantı kesilince oyuncuyu disconnected yap
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
 
-    // Bağlantı kesilince publicRooms kaydını sil
+    // Açık veya istekli odayı publicRooms'a kaydet (ayrı işlem — izin yoksa sessizce geç)
     if (visibility === 'public' || visibility === 'invite') {
-      onDisconnect(ref(this.db, `publicRooms/${code}`)).remove();
+      try {
+        await set(ref(this.db, `publicRooms/${code}`), {
+          hostName:    name,
+          playerCount: 1,
+          visibility,
+          createdAt:   Date.now(),
+        });
+        onDisconnect(ref(this.db, `publicRooms/${code}`)).remove();
+      } catch {
+        // publicRooms yazma izni yoksa listeye eklenmez ama oda açılır
+        console.warn('publicRooms yazılamadı — Firebase kurallarını kontrol edin');
+      }
     }
 
     return code;
@@ -148,25 +148,26 @@ export class RoomManager {
 
     this.roomCode = code;
 
-    const updates: Record<string, unknown> = {
-      [`rooms/${code}/players/${this.myId}`]: {
-        name,
-        colorIndex,
-        connected: true,
-        score:     0,
-      },
-    };
-
-    // Açık/istekli odalarda playerCount güncelle
-    const visib = room.visibility;
-    if (visib === 'public' || visib === 'invite') {
-      updates[`publicRooms/${code}/playerCount`] = connectedCount + 1;
-    }
-
-    await update(ref(this.db), updates);
+    await set(ref(this.db, `rooms/${code}/players/${this.myId}`), {
+      name,
+      colorIndex,
+      connected: true,
+      score:     0,
+    });
 
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
+
+    // Açık/istekli odalarda playerCount güncelle (izin yoksa sessizce geç)
+    const visib = room.visibility;
+    if (visib === 'public' || visib === 'invite') {
+      try {
+        await set(
+          ref(this.db, `publicRooms/${code}/playerCount`),
+          connectedCount + 1
+        );
+      } catch { /* publicRooms izni yoksa yoksay */ }
+    }
   }
 
   // --- İstek tabanlı katılım (invite odalar) ---
@@ -188,23 +189,28 @@ export class RoomManager {
     requesterColorIndex: number
   ): Promise<void> {
     if (!this.roomCode) return;
-    const updates: Record<string, unknown> = {
-      [`rooms/${this.roomCode}/players/${requesterId}`]: {
+
+    // Oyuncuyu odaya ekle + isteği sil
+    await update(ref(this.db, `rooms/${this.roomCode}`), {
+      [`players/${requesterId}`]: {
         name:       requesterName,
         colorIndex: requesterColorIndex,
         connected:  true,
         score:      0,
       },
-      [`rooms/${this.roomCode}/joinRequests/${requesterId}`]: null,
-    };
+      [`joinRequests/${requesterId}`]: null,
+    });
 
-    // publicRooms playerCount'u güncelle
-    const snap = await get(ref(this.db, `publicRooms/${this.roomCode}/playerCount`));
-    if (snap.exists()) {
-      updates[`publicRooms/${this.roomCode}/playerCount`] = (snap.val() as number) + 1;
-    }
-
-    await update(ref(this.db), updates);
+    // publicRooms playerCount güncelle (izin yoksa sessizce geç)
+    try {
+      const snap = await get(ref(this.db, `publicRooms/${this.roomCode}/playerCount`));
+      if (snap.exists()) {
+        await set(
+          ref(this.db, `publicRooms/${this.roomCode}/playerCount`),
+          (snap.val() as number) + 1
+        );
+      }
+    } catch { /* yoksay */ }
   }
 
   async declineRequest(requesterId: string): Promise<void> {
@@ -246,7 +252,9 @@ export class RoomManager {
 
   async removePublicRoom(): Promise<void> {
     if (!this.roomCode) return;
-    await set(ref(this.db, `publicRooms/${this.roomCode}`), null);
+    try {
+      await set(ref(this.db, `publicRooms/${this.roomCode}`), null);
+    } catch { /* publicRooms izni yoksa yoksay */ }
   }
 
   // --- Oyun başlatma (atomik) ---
@@ -259,7 +267,7 @@ export class RoomManager {
       state:       'countdown',
       gameStartAt: now + 3000,
     });
-    // Oyun başlayınca publicRooms'tan sil
+    // Oyun başlayınca publicRooms'tan sil (izin yoksa yoksay)
     await this.removePublicRoom();
   }
 

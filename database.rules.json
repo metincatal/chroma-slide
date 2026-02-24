@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "rooms": {
+      ".read": true,
+      ".write": true
+    },
+    "publicRooms": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}
