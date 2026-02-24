@@ -37,6 +37,7 @@ interface ScreenCallbacks {
   onMpDeclineRequest?:   (requesterId: string) => void;
   onMpStartGame?:        (levelId: number) => void;
   onMpLeave?:            () => void;
+  onMpRestart?:          () => void;
   onMpPlayAgain?:        () => void;
   onMpBackToMenu?:       () => void;
   onMpRequestRematch?:   () => void;
@@ -160,7 +161,7 @@ export class ScreenManager {
     const startBtn = this.overlay.querySelector('#btn-mp-start') as HTMLButtonElement;
     if (startBtn) {
       const connected = Object.values(players).filter((p) => p.connected).length;
-      startBtn.disabled = connected < 1;
+      startBtn.disabled = connected < 2;
     }
   }
 
@@ -338,6 +339,14 @@ export class ScreenManager {
     if (!btn) return;
     btn.textContent = 'Bekleniyor...';
     btn.disabled    = true;
+  }
+
+  // Bir oyuncu ayrıldığında "Tekrar Oyna" butonunu düşme animasyonuyla gizle
+  hideRematchButton() {
+    const btn = this.overlay.querySelector('#btn-mp-again') as HTMLButtonElement;
+    if (!btn || btn.classList.contains('mp-btn-dropping')) return;
+    btn.classList.add('mp-btn-dropping');
+    setTimeout(() => btn.remove(), 400);
   }
 
   // -------------------------------------------------------
@@ -695,7 +704,7 @@ export class ScreenManager {
     totalLevels: number
   ) {
     const connectedCount = Object.values(players).filter((p) => p.connected).length;
-    const canStart = connectedCount >= 1;
+    const canStart = connectedCount >= 2;
 
     const hostControls = isHost ? `
       <div class="mp-waiting-controls">
@@ -709,7 +718,7 @@ export class ScreenManager {
         <button class="btn btn-mode-multi mp-full-btn" id="btn-mp-start" ${canStart ? '' : 'disabled'}>
           BAŞLAT
         </button>
-        ${connectedCount < 2 ? '<div class="mp-solo-hint">Tek kişiyle de oynayabilirsin!</div>' : ''}
+        ${connectedCount < 2 ? '<div class="mp-waiting-hint-text">Oyunu başlatmak için en az 2 oyuncu gerekli</div>' : ''}
       </div>
       <div id="mp-join-request-section" class="mp-join-request-section"></div>
     ` : `
@@ -784,13 +793,21 @@ export class ScreenManager {
         </div>
         <div class="mp-room-tag">${roomCode}</div>
         <div class="mp-countdown" id="mp-countdown" style="display:none"></div>
-        <button class="hud-btn mp-leave-game-btn" id="btn-mp-leave-game" title="Ayrıl">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        </button>
+        <div class="mp-hud-actions">
+          <button class="hud-btn mp-restart-btn" id="btn-mp-restart" title="Topu Sıfırla">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/></svg>
+          </button>
+          <button class="hud-btn mp-leave-game-btn" id="btn-mp-leave-game" title="Ayrıl">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
       </div>
     `;
     this.overlay.innerHTML = html;
 
+    this.overlay.querySelector('#btn-mp-restart')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpRestart?.();
+    });
     this.overlay.querySelector('#btn-mp-leave-game')!.addEventListener('click', () => {
       playClick(); this.callbacks.onMpLeave?.();
     });

@@ -113,17 +113,18 @@ export class RoomManager {
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
 
-    // Keşfedilebilir odalarda publicRooms/ indeksine de yaz (fallback olarak)
+    // Keşfedilebilir odaları rooms/_index/{code} altında indeksle
+    // (rooms/$roomCode kuralı kapsamındadır, ek Firebase kuralı gerekmez)
     if (visibility === 'public' || visibility === 'invite') {
       try {
-        await set(ref(this.db, `publicRooms/${code}`), {
+        await set(ref(this.db, `rooms/_index/${code}`), {
           hostName:    name,
           playerCount: 1,
           visibility,
           createdAt:   Date.now(),
         });
-        onDisconnect(ref(this.db, `publicRooms/${code}`)).remove();
-      } catch { /* publicRooms yazma izni yoksa yoksay */ }
+        onDisconnect(ref(this.db, `rooms/_index/${code}`)).remove();
+      } catch (e) { console.warn('rooms/_index yazılamadı:', e); }
     }
 
     return code;
@@ -154,6 +155,17 @@ export class RoomManager {
 
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
+
+    // rooms/_index playerCount güncelle (varsa)
+    try {
+      const idxSnap = await get(ref(this.db, `rooms/_index/${code}`));
+      if (idxSnap.exists()) {
+        await set(
+          ref(this.db, `rooms/_index/${code}/playerCount`),
+          connectedCount + 1
+        );
+      }
+    } catch { /* yoksay */ }
   }
 
   // --- İstek tabanlı katılım (invite odalar) ---
@@ -207,61 +219,32 @@ export class RoomManager {
   }
 
   // --- Aktif oda listesi ---
+  // rooms/_index/{code} — rooms/$roomCode izin kapsamında, liste izni gerekmez
 
   listenToPublicRooms(
     callback: (rooms: PublicRoomEntry[]) => void
   ): () => void {
-    // rooms/ path'inden tam veriyi oku (en doğru kaynak)
-    const primaryUnsub = onValue(
-      ref(this.db, 'rooms'),
+    const unsub = onValue(
+      ref(this.db, 'rooms/_index'),
       (snap) => {
-        const allRooms = (snap.val() as Record<string, RoomInfo & {
-          players?: Record<string, PlayerData>;
-        }>) || {};
-
-        const list: PublicRoomEntry[] = [];
-        for (const [code, room] of Object.entries(allRooms)) {
-          if (
-            room.state === 'waiting' &&
-            (room.visibility === 'public' || room.visibility === 'invite')
-          ) {
-            const players = room.players ?? {};
-            const playerCount = Object.values(players).filter((p) => p.connected).length;
-            const hostPlayer  = players[room.hostId];
-            list.push({
-              code,
-              hostName:    hostPlayer?.name ?? '?',
-              playerCount: playerCount || 1,
-              visibility:  room.visibility as 'public' | 'invite',
-              createdAt:   room.createdAt,
-            });
-          }
-        }
-        callback(list);
-      },
-      // rooms/ okuma izni yoksa publicRooms/ fallback'ine geç
-      (err) => {
-        console.warn('rooms/ listesi okunamadı, publicRooms/ fallback:', err.message);
-        const fallbackUnsub = onValue(
-          ref(this.db, 'publicRooms'),
-          (snap) => {
-            const raw = (snap.val() as Record<string, Omit<PublicRoomEntry, 'code'>>) || {};
-            callback(
-              Object.entries(raw).map(([code, entry]) => ({ ...entry, code }))
-            );
-          }
+        const raw = (snap.val() as Record<string, Omit<PublicRoomEntry, 'code'>>) || {};
+        callback(
+          Object.entries(raw).map(([code, entry]) => ({ ...entry, code }))
         );
-        this.unsubscribers.push(fallbackUnsub);
+      },
+      (err) => {
+        console.error('rooms/_index okunamadı:', err.message);
+        callback([]);
       }
     );
-    this.unsubscribers.push(primaryUnsub);
-    return primaryUnsub;
+    this.unsubscribers.push(unsub);
+    return unsub;
   }
 
   async removePublicRoom(): Promise<void> {
     if (!this.roomCode) return;
     try {
-      await set(ref(this.db, `publicRooms/${this.roomCode}`), null);
+      await set(ref(this.db, `rooms/_index/${this.roomCode}`), null);
     } catch { /* yoksay */ }
   }
 

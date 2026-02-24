@@ -185,6 +185,12 @@ export class MultiplayerGame {
         },
 
         onMpStartGame: async (levelId: number) => {
+          const connectedCount = Object.values(this.players)
+            .filter((p) => p.connected).length;
+          if (connectedCount < 2) {
+            this.screenManager.showMpError('Oyunu başlatmak için en az 2 oyuncu gerekli');
+            return;
+          }
           this.selectedLevel = levelId;
           try {
             await this.roomManager.startGame(levelId);
@@ -228,6 +234,13 @@ export class MultiplayerGame {
           await this.roomManager.leaveRoom();
           this.cleanup();
           this.onBackToMenu();
+        },
+
+        // Oyun sırasında topu başlangıç noktasına sıfırla
+        onMpRestart: () => {
+          if (!this.level || !this.myBall || this.roomState !== 'playing') return;
+          this.myBall    = new Ball(this.level.data.startX, this.level.data.startY);
+          this.moveQueue = [];
         },
 
         onMpPlayAgain: async () => {
@@ -462,7 +475,7 @@ export class MultiplayerGame {
       const remaining = Math.ceil((startAt - Date.now()) / 1000);
       if (remaining > 0) {
         this.screenManager.updateMpCountdown(remaining);
-        setTimeout(tick, 300);
+        setTimeout(tick, 100); // Daha hassas zamanlama
       } else {
         this.screenManager.updateMpCountdown(0);
         this.launchGame();
@@ -527,6 +540,10 @@ export class MultiplayerGame {
       const connected = Object.values(players).filter((p) => p.connected);
       if (connected.length <= 1 && !this.gameEnding) {
         this.onGameFinished();
+      }
+      // Sonuç ekranındayken birisi ayrılırsa "Tekrar Oyna" butonunu gizle
+      if (this.roomState === 'finished' && connected.length <= 1) {
+        this.screenManager.hideRematchButton();
       }
       for (const [pid, rp] of this.remotePlayers) {
         rp.connected = players[pid]?.connected ?? false;

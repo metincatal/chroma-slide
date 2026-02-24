@@ -698,6 +698,7 @@ html, body {
 .mp-waiting-screen {
   gap: 16px;
   justify-content: center;
+  background: rgba(240, 236, 230, 1); /* Tam opak — canvas'ın önünde */
 }
 
 .mp-waiting-top {
@@ -841,9 +842,9 @@ html, body {
   -webkit-appearance: none;
 }
 
-.mp-solo-hint {
+.mp-waiting-hint-text {
   font-size: 12px;
-  color: rgba(106, 96, 88, 0.45);
+  color: rgba(106, 96, 88, 0.55);
   text-align: center;
 }
 
@@ -949,10 +950,18 @@ html, body {
   pointer-events: none;
 }
 
-.mp-leave-game-btn {
+.mp-hud-actions {
   position: absolute;
-  left: 12px;
+  left: 8px;
   top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.mp-leave-game-btn,
+.mp-restart-btn {
   pointer-events: auto;
 }
 
@@ -1283,6 +1292,16 @@ html, body {
 .mp-results-actions {
   display: flex;
   gap: 12px;
+}
+
+/* Tekrar Oyna butonu düşme animasyonu (oyuncu ayrıldığında) */
+@keyframes dropOut {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(48px) scale(0.85); }
+}
+.mp-btn-dropping {
+  animation: dropOut 0.4s ease-in forwards;
+  pointer-events: none;
 }
 
 /* ============================================================
