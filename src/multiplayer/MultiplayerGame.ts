@@ -63,8 +63,9 @@ export class MultiplayerGame {
   private animFrameId = 0;
   private lastTime    = 0;
 
-  // Rematch — "TEKRAR OYNA" butonuna basıldı mı
+  // Rematch
   private rematchRequested = false;
+  private rematchResolved  = false;
 
   constructor(canvas: HTMLCanvasElement, overlay: HTMLDivElement, onBackToMenu: () => void) {
     this.canvas      = canvas;
@@ -334,6 +335,12 @@ export class MultiplayerGame {
       if (info.state === 'finished') {
         this.onGameFinished();
       }
+
+      // Host resetForRematch() çağırdığında state 'waiting' döner →
+      // tüm oyuncular bekleme odasına geri döner
+      if (info.state === 'waiting' && this.roomState === 'finished') {
+        this.onRematchReset();
+      }
     });
 
     // Rematch dinleyicisi (oyun bittikten sonra da geçerli)
@@ -369,17 +376,18 @@ export class MultiplayerGame {
   }
 
   private checkRematchResolution(rematch: RematchData) {
+    // Çift tetiklenmeyi önle
+    if (this.rematchResolved) return;
+
     const accepted = rematch.accepted ?? {};
-    const accepted_ids = Object.entries(accepted)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
     const declined_ids = Object.entries(accepted)
       .filter(([, v]) => !v)
       .map(([k]) => k);
 
-    // Reddeden oyuncuları odadan çıkar
+    // Ben reddettim → odadan çık ve menüye dön
     for (const pid of declined_ids) {
       if (pid === this.myPlayerId) {
+        this.rematchResolved = true;
         this.roomManager.leaveRoom();
         this.cleanup();
         this.onBackToMenu();
@@ -401,24 +409,48 @@ export class MultiplayerGame {
     if (!allAnswered) return;
 
     // En az 1 kişi kabul etti mi?
-    const someAccepted = accepted_ids.some((pid) => pid !== rematch.requestedBy);
+    const accepted_ids = Object.entries(accepted)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    const someAccepted = accepted_ids.length > 0;
     if (!someAccepted) {
-      // Hiç kimse kabul etmedi
+      this.rematchResolved = true;
       this.roomManager.leaveRoom();
       this.cleanup();
       this.onBackToMenu();
       return;
     }
 
-    // Tüm oyuncular (kabul edenler) lobiye git
-    this.rematchStart();
+    // Karar verildi; sadece HOST odayı sıfırlar
+    // Diğerleri onRoomChange → state==='waiting' ile tetiklenecek
+    this.rematchResolved = true;
+    if (this.isHost) {
+      this.roomManager.resetForRematch().catch(console.error);
+    }
+    // Non-host: onRoomChange handler'ı onRematchReset()'i çağıracak
   }
 
-  private async rematchStart() {
-    await this.roomManager.leaveRoom();
-    this.cleanup();
-    this.roomManager = new RoomManager(db, this.myPlayerId);
-    this.showLobby();
+  // Host resetForRematch() sonrası TÜM oyuncular buraya gelir (onRoomChange tetikler)
+  private onRematchReset() {
+    // Yerel oyun durumunu temizle — ama roomCode ve isHost korunur
+    this.level         = null;
+    this.myBall        = null;
+    this.remotePlayers.clear();
+    this.tileColors    = new Map();
+    this.moveSeq       = 0;
+    this.gameStartAt   = 0;
+    this.roomState     = 'waiting';
+    this.gameEnding    = false;
+    this.rematchRequested = false;
+    this.rematchResolved  = false;
+    this.input.setEnabled(false);
+    this.renderer.stopConfetti();
+
+    // Mevcut listener'ları kapat (roomCode korunur)
+    this.roomManager.cleanupListeners();
+
+    // Bekleme odasını yeniden aç
+    this.enterWaiting();
   }
 
   // -------------------------------------------------------
@@ -669,15 +701,16 @@ export class MultiplayerGame {
   // -------------------------------------------------------
 
   private cleanup() {
-    this.level      = null;
-    this.myBall     = null;
+    this.level         = null;
+    this.myBall        = null;
     this.remotePlayers.clear();
-    this.tileColors = new Map();
-    this.moveSeq    = 0;
-    this.gameStartAt = 0;
-    this.roomState  = 'waiting';
-    this.gameEnding = false;
+    this.tileColors    = new Map();
+    this.moveSeq       = 0;
+    this.gameStartAt   = 0;
+    this.roomState     = 'waiting';
+    this.gameEnding    = false;
     this.rematchRequested = false;
+    this.rematchResolved  = false;
     this.input.setEnabled(false);
     this.renderer.stopConfetti();
   }

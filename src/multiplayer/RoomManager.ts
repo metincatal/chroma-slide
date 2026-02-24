@@ -92,7 +92,7 @@ export class RoomManager {
 
     this.roomCode = code;
 
-    // Oda ve host oyuncuyu aynı anda yaz (sadece rooms/ path'i)
+    // Oda ve host oyuncuyu aynı anda yaz
     await update(ref(this.db, `rooms/${code}`), {
       state:       'waiting',
       hostId:      this.myId,
@@ -112,6 +112,19 @@ export class RoomManager {
     // Bağlantı kesilince oyuncuyu disconnected yap
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
+
+    // Keşfedilebilir odalarda publicRooms/ indeksine de yaz (fallback olarak)
+    if (visibility === 'public' || visibility === 'invite') {
+      try {
+        await set(ref(this.db, `publicRooms/${code}`), {
+          hostName:    name,
+          playerCount: 1,
+          visibility,
+          createdAt:   Date.now(),
+        });
+        onDisconnect(ref(this.db, `publicRooms/${code}`)).remove();
+      } catch { /* publicRooms yazma izni yoksa yoksay */ }
+    }
 
     return code;
   }
@@ -193,12 +206,13 @@ export class RoomManager {
     return unsub;
   }
 
-  // --- Aktif oda listesi (rooms/ path'inden filtrele — ayrı Firebase kuralı gerektirmez) ---
+  // --- Aktif oda listesi ---
 
   listenToPublicRooms(
     callback: (rooms: PublicRoomEntry[]) => void
   ): () => void {
-    const unsub = onValue(
+    // rooms/ path'inden tam veriyi oku (en doğru kaynak)
+    const primaryUnsub = onValue(
       ref(this.db, 'rooms'),
       (snap) => {
         const allRooms = (snap.val() as Record<string, RoomInfo & {
@@ -224,14 +238,31 @@ export class RoomManager {
           }
         }
         callback(list);
+      },
+      // rooms/ okuma izni yoksa publicRooms/ fallback'ine geç
+      (err) => {
+        console.warn('rooms/ listesi okunamadı, publicRooms/ fallback:', err.message);
+        const fallbackUnsub = onValue(
+          ref(this.db, 'publicRooms'),
+          (snap) => {
+            const raw = (snap.val() as Record<string, Omit<PublicRoomEntry, 'code'>>) || {};
+            callback(
+              Object.entries(raw).map(([code, entry]) => ({ ...entry, code }))
+            );
+          }
+        );
+        this.unsubscribers.push(fallbackUnsub);
       }
     );
-    this.unsubscribers.push(unsub);
-    return unsub;
+    this.unsubscribers.push(primaryUnsub);
+    return primaryUnsub;
   }
 
   async removePublicRoom(): Promise<void> {
-    // publicRooms/ path'i artık kullanılmıyor; rooms/ path'i zaten state değişimiyle güncelleniyor
+    if (!this.roomCode) return;
+    try {
+      await set(ref(this.db, `publicRooms/${this.roomCode}`), null);
+    } catch { /* yoksay */ }
   }
 
   // --- Oyun başlatma (atomik) ---
@@ -393,7 +424,29 @@ export class RoomManager {
     return unsub;
   }
 
+  // --- Rematch sıfırlama ---
+
+  // Oda verilerini sıfırla (state → waiting, hamle/renk/rematch temizle)
+  // Sadece host çağırır; diğerleri onRoomChange ile bildirim alır
+  async resetForRematch(): Promise<void> {
+    if (!this.roomCode) return;
+    await update(ref(this.db, `rooms/${this.roomCode}`), {
+      state:       'waiting',
+      gameStartAt: null,
+      moves:       null,
+      tileOwners:  null,
+      rematch:     null,
+    });
+  }
+
   // --- Temizlik ---
+
+  // Dinleyicileri temizle ama roomCode'u koru (rematch arası geçişte kullanılır)
+  cleanupListeners(): void {
+    for (const unsub of this.unsubscribers) unsub();
+    this.unsubscribers  = [];
+    this.processedMoves = new Map();
+  }
 
   cleanup(): void {
     for (const unsub of this.unsubscribers) unsub();
