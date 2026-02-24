@@ -4,7 +4,7 @@ import { THEMES, ThemeConfig } from '../utils/themes';
 import { getSelectedTheme } from '../utils/storage';
 import { getDifficultyTiers, DifficultyTier } from '../levels/procedural';
 import { playClick, resumeAudio } from '../utils/sound';
-import { PlayerData } from '../multiplayer/RoomManager';
+import { PlayerData, RoomVisibility, PublicRoomEntry, JoinRequest } from '../multiplayer/RoomManager';
 
 export type Screen =
   | 'menu'
@@ -27,13 +27,21 @@ interface ScreenCallbacks {
   onSelectTheme: (theme: ThemeConfig) => void;
   onShowThemes: () => void;
   // Multiplayer callbacks (isteğe bağlı — sadece MultiplayerGame geçirir)
-  onMpNameSubmit?: (name: string) => void;
-  onMpCreateRoom?: () => void;
-  onMpJoinRoom?:   (code: string) => void;
-  onMpStartGame?:  (levelId: number) => void;
-  onMpLeave?:      () => void;
-  onMpPlayAgain?:  () => void;
-  onMpBackToMenu?: () => void;
+  onMpNameSubmit?:       (name: string) => void;
+  onMpChangeName?:       () => void;
+  onMpCreateRoom?:       (visibility: RoomVisibility) => void;
+  onMpJoinRoom?:         (code: string) => void;
+  onMpJoinFromList?:     (code: string) => void;
+  onMpSendJoinRequest?:  (code: string) => void;
+  onMpApproveRequest?:   (requesterId: string) => void;
+  onMpDeclineRequest?:   (requesterId: string) => void;
+  onMpStartGame?:        (levelId: number) => void;
+  onMpLeave?:            () => void;
+  onMpPlayAgain?:        () => void;
+  onMpBackToMenu?:       () => void;
+  onMpRequestRematch?:   () => void;
+  onMpAcceptRematch?:    () => void;
+  onMpDeclineRematch?:   () => void;
 }
 
 export class ScreenManager {
@@ -43,6 +51,12 @@ export class ScreenManager {
   private totalLevels: number;
   private currentMode: GameMode;
   private activeTierIndex = 0;
+
+  // Bekleyen join istekleri (approveRequest için isim/renk gerekli)
+  private pendingRequests: Record<string, JoinRequest> = {};
+
+  // Seçili visibility (lobby'de)
+  private selectedVisibility: RoomVisibility = 'private';
 
   constructor(
     overlay: HTMLDivElement,
@@ -101,8 +115,13 @@ export class ScreenManager {
 
   getScreen(): Screen { return this.currentScreen; }
 
+  // Bekleyen istek sorgula (MultiplayerGame'den çağrılır)
+  getPendingRequest(requesterId: string): JoinRequest | undefined {
+    return this.pendingRequests[requesterId];
+  }
+
   // -------------------------------------------------------
-  // Tek oyuncu HUD güncelleme
+  // Tek oyunculu HUD güncelleme
   // -------------------------------------------------------
 
   updateHUD(progress: number, remainingUndos?: number) {
@@ -165,7 +184,6 @@ export class ScreenManager {
     const scoresEl = this.overlay.querySelector('#mp-scores');
     if (!scoresEl) return;
 
-    // Skorları tileColors'tan hesapla
     const scores: Record<string, number> = {};
     for (const [, colorIdx] of tileColors) {
       for (const [pid, p] of Object.entries(players)) {
@@ -188,6 +206,139 @@ export class ScreenManager {
     toast.textContent = message;
     this.overlay.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+  }
+
+  // Aktif odalar listesini güncelle (lobby'de gösterilir)
+  updatePublicRooms(rooms: PublicRoomEntry[]) {
+    const container = this.overlay.querySelector('#mp-rooms-list');
+    if (!container) return;
+
+    if (rooms.length === 0) {
+      container.innerHTML = '<div class="mp-rooms-empty">Aktif oda yok</div>';
+      return;
+    }
+
+    container.innerHTML = rooms
+      .map((room) => {
+        const lockIcon = room.visibility === 'invite'
+          ? '<span class="mp-room-lock">🔒</span>'
+          : '<span class="mp-room-open">🌐</span>';
+        const btnText  = room.visibility === 'invite' ? 'İstek Gönder' : 'Katıl';
+        const action   = room.visibility === 'invite'
+          ? `onMpSendJoinRequest:'${room.code}'`
+          : `onMpJoinFromList:'${room.code}'`;
+        return `
+          <div class="mp-room-item">
+            ${lockIcon}
+            <div class="mp-room-info">
+              <span class="mp-room-host">${room.hostName}</span>
+              <span class="mp-room-players">${room.playerCount}/4 oyuncu</span>
+            </div>
+            <button class="mp-room-join-btn" data-code="${room.code}" data-vis="${room.visibility}">
+              ${btnText}
+            </button>
+          </div>
+        `;
+      })
+      .join('');
+
+    // Butonlara event ekle
+    container.querySelectorAll('.mp-room-join-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        playClick();
+        const code = (btn as HTMLElement).dataset.code!;
+        const vis  = (btn as HTMLElement).dataset.vis as RoomVisibility;
+        if (vis === 'invite') {
+          this.callbacks.onMpSendJoinRequest?.(code);
+        } else {
+          this.callbacks.onMpJoinFromList?.(code);
+        }
+      });
+    });
+  }
+
+  // Katılma isteklerini bekleme odasında güncelle
+  updateMpJoinRequests(requests: Record<string, JoinRequest>) {
+    // Bekleyen istekleri sakla (approveRequest için gerekli)
+    this.pendingRequests = requests;
+
+    const section = this.overlay.querySelector('#mp-join-request-section');
+    if (!section) return;
+
+    const entries = Object.entries(requests).filter(([, r]) => r);
+    if (entries.length === 0) {
+      section.innerHTML = '';
+      return;
+    }
+
+    let html = '<div class="mp-join-request-label">Katılma İstekleri</div>';
+    for (const [pid, req] of entries) {
+      const [gs] = PAINT_GRADIENTS[req.colorIndex % PAINT_GRADIENTS.length];
+      html += `
+        <div class="mp-join-request-item">
+          <span class="mp-player-dot" style="background:${gs}"></span>
+          <span class="mp-join-req-name">${req.name}</span>
+          <button class="mp-req-btn mp-req-approve" data-pid="${pid}">Onayla</button>
+          <button class="mp-req-btn mp-req-decline" data-pid="${pid}">Reddet</button>
+        </div>
+      `;
+    }
+    section.innerHTML = html;
+
+    section.querySelectorAll('.mp-req-approve').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        playClick();
+        this.callbacks.onMpApproveRequest?.((btn as HTMLElement).dataset.pid!);
+      });
+    });
+    section.querySelectorAll('.mp-req-decline').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        playClick();
+        this.callbacks.onMpDeclineRequest?.((btn as HTMLElement).dataset.pid!);
+      });
+    });
+  }
+
+  // Rematch dialog (mevcut overlay üstüne)
+  showRematchDialog(
+    fromName: string,
+    onAccept: () => void,
+    onDecline: () => void
+  ) {
+    // Önceki varsa kaldır
+    this.overlay.querySelector('.mp-rematch-dialog')?.remove();
+
+    const dialog = document.createElement('div');
+    dialog.className = 'mp-rematch-dialog';
+    dialog.innerHTML = `
+      <div class="mp-rematch-box">
+        <div class="mp-rematch-title">${fromName} tekrar oynamak istiyor!</div>
+        <div class="mp-rematch-actions">
+          <button class="btn btn-mode-multi" id="btn-rematch-accept">KABUL</button>
+          <button class="btn btn-secondary"  id="btn-rematch-decline">REDDET</button>
+        </div>
+      </div>
+    `;
+    this.overlay.appendChild(dialog);
+
+    dialog.querySelector('#btn-rematch-accept')!.addEventListener('click', () => {
+      playClick();
+      dialog.remove();
+      onAccept();
+    });
+    dialog.querySelector('#btn-rematch-decline')!.addEventListener('click', () => {
+      playClick();
+      dialog.remove();
+      onDecline();
+    });
+  }
+
+  // Sonuç ekranında "Tekrar Oyna" butonunu "Bekleniyor..." hâline getir
+  setRematchWaiting() {
+    const btn = this.overlay.querySelector('#btn-mp-again') as HTMLButtonElement;
+    if (!btn) return;
+    btn.textContent = 'Bekleniyor...';
+    btn.disabled    = true;
   }
 
   // -------------------------------------------------------
@@ -232,10 +383,8 @@ export class ScreenManager {
     });
     this.overlay.querySelector('#btn-multiplayer')!.addEventListener('click', () => {
       resumeAudio(); playClick();
-      // MultiplayerGame geçirildiyse doğrudan çağır,
-      // yoksa global event ile main.ts'e bildir
       if (this.callbacks.onMpBackToMenu) {
-        // Zaten multiplayer ScreenManager — bu buton menüden çıkışta kullanılmaz
+        // Zaten multiplayer ScreenManager
       } else {
         document.dispatchEvent(new CustomEvent('chroma:startMultiplayer'));
       }
@@ -250,7 +399,7 @@ export class ScreenManager {
     const currentTheme = getSelectedTheme();
     let themesHtml = '';
     for (const theme of THEMES) {
-      const isActive   = theme.id === currentTheme;
+      const isActive    = theme.id === currentTheme;
       const activeClass = isActive ? ' theme-card-active' : '';
       themesHtml += `
         <button class="theme-card${activeClass}" data-theme="${theme.id}">
@@ -280,7 +429,7 @@ export class ScreenManager {
       btn.addEventListener('click', () => {
         playClick();
         const themeId = (btn as HTMLElement).dataset.theme!;
-        const theme = THEMES.find((t) => t.id === themeId);
+        const theme   = THEMES.find((t) => t.id === themeId);
         if (theme) this.callbacks.onSelectTheme(theme);
       });
     });
@@ -336,7 +485,7 @@ export class ScreenManager {
     for (let i = tier.startLevel; i <= tier.endLevel; i++) {
       const stars       = allStars[i] || 0;
       const isCompleted = stars > 0;
-      let className     = 'level-btn ' + (isCompleted ? 'completed' : 'unlocked');
+      const className   = 'level-btn ' + (isCompleted ? 'completed' : 'unlocked');
       const colorIdx    = (i - 1) % LEVEL_COLORS.length;
       const style       = !isCompleted
         ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 20)})`
@@ -398,10 +547,10 @@ export class ScreenManager {
       </div>
     `;
     this.overlay.innerHTML = html;
-    this.overlay.querySelector('#btn-hud-back')!.addEventListener('click',  () => { playClick(); this.callbacks.onBack(); });
-    this.overlay.querySelector('#btn-undo')!.addEventListener('click',      () => { playClick(); this.callbacks.onUndo(); });
-    this.overlay.querySelector('#btn-restart')!.addEventListener('click',   () => { playClick(); this.callbacks.onRestart(); });
-    this.overlay.querySelector('#btn-screenshot')!.addEventListener('click',() => { playClick(); this.callbacks.onScreenshot(); });
+    this.overlay.querySelector('#btn-hud-back')!.addEventListener('click',   () => { playClick(); this.callbacks.onBack(); });
+    this.overlay.querySelector('#btn-undo')!.addEventListener('click',       () => { playClick(); this.callbacks.onUndo(); });
+    this.overlay.querySelector('#btn-restart')!.addEventListener('click',    () => { playClick(); this.callbacks.onRestart(); });
+    this.overlay.querySelector('#btn-screenshot')!.addEventListener('click', () => { playClick(); this.callbacks.onScreenshot(); });
   }
 
   // -------------------------------------------------------
@@ -444,16 +593,30 @@ export class ScreenManager {
   }
 
   private showMpLobby() {
+    // Visibility seçimi için varsayılan
+    this.selectedVisibility = 'private';
+
     const html = `
       <div class="mp-screen mp-lobby-screen">
         <div class="mp-lobby-card">
-          <div class="mp-lobby-section">
+
+          <!-- İsim satırı -->
+          <div class="mp-lobby-name-row">
             <div class="mp-lobby-section-label">Yeni oyun</div>
-            <button class="btn btn-mode-multi mp-full-btn" id="btn-create-room">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-              ODA OLUŞTUR
-            </button>
+            <button class="mp-change-name-btn" id="btn-mp-change-name">İsmi Değiştir</button>
           </div>
+
+          <!-- Görünürlük seçici -->
+          <div class="mp-visibility-picker" id="mp-vis-picker">
+            <button class="mp-vis-btn active" data-vis="private">Özel</button>
+            <button class="mp-vis-btn" data-vis="public">Açık</button>
+            <button class="mp-vis-btn" data-vis="invite">İstekli</button>
+          </div>
+
+          <button class="btn btn-mode-multi mp-full-btn" id="btn-create-room">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            ODA OLUŞTUR
+          </button>
 
           <div class="mp-lobby-divider">
             <span>veya bir odaya katıl</span>
@@ -469,6 +632,17 @@ export class ScreenManager {
               ODAYA KATIL
             </button>
           </div>
+
+          <!-- Aktif odalar listesi -->
+          <div class="mp-lobby-divider">
+            <span>aktif odalar</span>
+          </div>
+          <div class="mp-rooms-section">
+            <div class="mp-rooms-list" id="mp-rooms-list">
+              <div class="mp-rooms-empty">Yükleniyor...</div>
+            </div>
+          </div>
+
         </div>
 
         <button class="mp-text-btn" id="btn-mp-back">← Geri</button>
@@ -478,8 +652,20 @@ export class ScreenManager {
 
     const codeInput = this.overlay.querySelector('#mp-code-input') as HTMLInputElement;
 
+    // Visibility picker
+    this.overlay.querySelectorAll('.mp-vis-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.overlay.querySelectorAll('.mp-vis-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.selectedVisibility = (btn as HTMLElement).dataset.vis as RoomVisibility;
+      });
+    });
+
+    this.overlay.querySelector('#btn-mp-change-name')!.addEventListener('click', () => {
+      playClick(); this.callbacks.onMpChangeName?.();
+    });
     this.overlay.querySelector('#btn-create-room')!.addEventListener('click', () => {
-      playClick(); this.callbacks.onMpCreateRoom?.();
+      playClick(); this.callbacks.onMpCreateRoom?.(this.selectedVisibility);
     });
     this.overlay.querySelector('#btn-join-room')!.addEventListener('click', () => {
       playClick();
@@ -524,6 +710,7 @@ export class ScreenManager {
         </button>
         ${connectedCount < 2 ? '<div class="mp-solo-hint">Tek kişiyle de oynayabilirsin!</div>' : ''}
       </div>
+      <div id="mp-join-request-section" class="mp-join-request-section"></div>
     ` : `
       <div class="mp-waiting-hint">
         <div class="mp-waiting-dots"><span></span><span></span><span></span></div>
@@ -553,10 +740,16 @@ export class ScreenManager {
     if (isHost) {
       let level = selectedLevel;
       this.overlay.querySelector('#btn-level-down')!.addEventListener('click', () => {
-        if (level > 1) { level--; (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`; }
+        if (level > 1) {
+          level--;
+          (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`;
+        }
       });
       this.overlay.querySelector('#btn-level-up')!.addEventListener('click', () => {
-        if (level < totalLevels) { level++; (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`; }
+        if (level < totalLevels) {
+          level++;
+          (this.overlay.querySelector('#mp-level-display') as HTMLElement).textContent = `Seviye ${level}`;
+        }
       });
       this.overlay.querySelector('#btn-mp-start')!.addEventListener('click', () => {
         playClick(); this.callbacks.onMpStartGame?.(level);
@@ -599,7 +792,6 @@ export class ScreenManager {
     finalScores: Record<string, number>,
     myId: string
   ) {
-    // Sırala: en yüksek skor → en düşük
     const sorted = Object.entries(players)
       .filter(([, p]) => p)
       .sort(([aid], [bid]) => (finalScores[bid] ?? 0) - (finalScores[aid] ?? 0));
@@ -609,7 +801,7 @@ export class ScreenManager {
     sorted.forEach(([pid, p], idx) => {
       const isMe    = pid === myId;
       const meClass = isMe ? ' mp-result-me' : '';
-      const [gs, ge] = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
+      const [gs]    = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
       rankHtml += `
         <div class="mp-result-row${meClass}">
           <span class="mp-result-medal">${medals[idx] ?? ''}</span>
@@ -625,15 +817,15 @@ export class ScreenManager {
         <div class="mp-screen-title">Oyun Bitti!</div>
         <div class="mp-results-list">${rankHtml}</div>
         <div class="mp-results-actions">
-          <button class="btn btn-mode-multi"   id="btn-mp-again">TEKRAR OYNA</button>
-          <button class="btn btn-secondary"    id="btn-mp-menu">ANA MENÜ</button>
+          <button class="btn btn-mode-multi" id="btn-mp-again">TEKRAR OYNA</button>
+          <button class="btn btn-secondary"  id="btn-mp-menu">ANA MENÜ</button>
         </div>
       </div>
     `;
     this.overlay.innerHTML = html;
 
     this.overlay.querySelector('#btn-mp-again')!.addEventListener('click', () => {
-      playClick(); this.callbacks.onMpPlayAgain?.();
+      playClick(); this.callbacks.onMpRequestRematch?.();
     });
     this.overlay.querySelector('#btn-mp-menu')!.addEventListener('click', () => {
       playClick(); this.callbacks.onMpBackToMenu?.();
@@ -648,7 +840,7 @@ export class ScreenManager {
     let html = '';
     for (const [, p] of Object.entries(players)) {
       if (!p) continue;
-      const [gs] = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
+      const [gs]      = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
       const connClass = p.connected ? '' : ' mp-player-disconnected';
       html += `
         <div class="mp-player-item${connClass}">

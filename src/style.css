@@ -960,11 +960,257 @@ html, body {
 }
 
 /* ============================================================
+   MP-LOBBY — İsim satırı + Visibility Picker + Aktif Odalar
+   ============================================================ */
+
+.mp-lobby-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.mp-change-name-btn {
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(106, 96, 88, 0.55);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mp-change-name-btn:hover {
+  color: rgba(106, 96, 88, 0.9);
+  background: rgba(0,0,0,0.04);
+}
+
+/* Segment control: Özel | Açık | İstekli */
+.mp-visibility-picker {
+  display: flex;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.05);
+  margin-bottom: 10px;
+}
+
+.mp-vis-btn {
+  flex: 1;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(106, 96, 88, 0.6);
+  cursor: pointer;
+  padding: 8px 4px;
+  transition: background 0.15s, color 0.15s;
+  letter-spacing: 0.3px;
+}
+
+.mp-vis-btn.active {
+  background: linear-gradient(135deg, #d4906c, #c0705a);
+  color: #fff;
+  border-radius: 8px;
+}
+
+.mp-vis-btn:active {
+  opacity: 0.8;
+}
+
+/* Aktif Odalar bölümü */
+.mp-rooms-section {
+  padding: 4px 0 8px;
+}
+
+.mp-rooms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mp-rooms-empty {
+  font-size: 12px;
+  color: rgba(106, 96, 88, 0.4);
+  text-align: center;
+  padding: 8px 0;
+}
+
+.mp-room-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.mp-room-lock,
+.mp-room-open {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.mp-room-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mp-room-host {
+  font-size: 13px;
+  font-weight: 700;
+  color: #5a5048;
+}
+
+.mp-room-players {
+  font-size: 11px;
+  color: rgba(106, 96, 88, 0.5);
+}
+
+.mp-room-join-btn {
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #d4906c, #c0705a);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 12px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.mp-room-join-btn:active {
+  opacity: 0.8;
+}
+
+/* ============================================================
+   MP-WAITING — Katılma İstekleri Bölümü
+   ============================================================ */
+
+.mp-join-request-section {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mp-join-request-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(106, 96, 88, 0.5);
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.mp-join-request-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.mp-join-req-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5a5048;
+}
+
+.mp-req-btn {
+  border: none;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  letter-spacing: 0.3px;
+}
+
+.mp-req-btn:active {
+  opacity: 0.8;
+}
+
+.mp-req-approve {
+  background: linear-gradient(135deg, #8dbd8d, #6aaa6a);
+  color: #fff;
+}
+
+.mp-req-decline {
+  background: rgba(0,0,0,0.07);
+  color: rgba(106, 96, 88, 0.8);
+}
+
+/* ============================================================
+   REMATCH DIALOG
+   ============================================================ */
+
+.mp-rematch-dialog {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 26, 22, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: fadeIn 0.2s ease;
+}
+
+.mp-rematch-box {
+  background: #f5f1eb;
+  border-radius: 20px;
+  padding: 28px 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  max-width: 300px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.mp-rematch-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #5a5048;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.mp-rematch-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.mp-rematch-actions .btn {
+  flex: 1;
+  padding: 12px 8px;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+/* ============================================================
    MP-RESULTS EKRANI
    ============================================================ */
 
 .mp-results-screen {
   gap: 20px;
+  background: rgba(240, 236, 230, 0.92);
 }
 
 .mp-results-list {

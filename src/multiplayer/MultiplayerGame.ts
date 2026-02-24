@@ -6,10 +6,10 @@ import { ScreenManager } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
 import { Direction, PAINT_GRADIENTS } from '../utils/constants';
 import { getThemeById, ThemeConfig } from '../utils/themes';
-import { getSelectedTheme } from '../utils/storage';
+import { getSelectedTheme, getMpName, saveMpName, getMpColorIndex, saveMpColorIndex } from '../utils/storage';
 import { playSlide, playBump, resumeAudio } from '../utils/sound';
 import { db } from './FirebaseConfig';
-import { RoomManager, PlayerData, RoomInfo } from './RoomManager';
+import { RoomManager, PlayerData, RoomInfo, RoomVisibility, PublicRoomEntry, JoinRequest, RematchData } from './RoomManager';
 import { RemotePlayer } from './RemotePlayer';
 
 // localStorage'da kalıcı oyuncu kimliği
@@ -42,6 +42,7 @@ export class MultiplayerGame {
   private players: Record<string, PlayerData> = {};
   private roomState: RoomInfo['state'] = 'waiting';
   private selectedLevel = 1;
+  private roomVisibility: RoomVisibility = 'private';
 
   // Oyun durumu
   private level: Level | null = null;
@@ -56,12 +57,14 @@ export class MultiplayerGame {
   private gameEnding = false;
 
   // Geri sayım
-  private countdownEnd = 0;
   private gameStartAt  = 0;
 
   // Animasyon döngüsü
   private animFrameId = 0;
   private lastTime    = 0;
+
+  // Rematch — "TEKRAR OYNA" butonuna basıldı mı
+  private rematchRequested = false;
 
   constructor(canvas: HTMLCanvasElement, overlay: HTMLDivElement, onBackToMenu: () => void) {
     this.canvas      = canvas;
@@ -91,15 +94,27 @@ export class MultiplayerGame {
         onShowThemes:  () => {},
         onSelectTheme: (theme: ThemeConfig) => this.renderer.setTheme(theme),
 
-        // Multiplayer callback'ler
+        // --- Multiplayer callback'ler ---
+
         onMpNameSubmit: (name: string) => {
-          this.myName = name.trim() || 'Oyuncu';
-          this.myColorIndex = Math.floor(Math.random() * PAINT_GRADIENTS.length);
-          this.screenManager.show('mp-lobby');
+          this.myName       = name.trim() || 'Oyuncu';
+          this.myColorIndex = getMpColorIndex();
+          saveMpName(this.myName);
+          saveMpColorIndex(this.myColorIndex);
+          this.showLobby();
         },
-        onMpCreateRoom: async () => {
+
+        onMpChangeName: () => {
+          // İsim ekranını göster; kaydet; lobiye dön
+          this.screenManager.show('mp-name');
+        },
+
+        onMpCreateRoom: async (visibility: RoomVisibility = 'private') => {
+          this.roomVisibility = visibility;
           try {
-            const code = await this.roomManager.createRoom(this.myName, this.myColorIndex);
+            const code = await this.roomManager.createRoom(
+              this.myName, this.myColorIndex, visibility
+            );
             this.roomCode = code;
             this.isHost   = true;
             this.enterWaiting();
@@ -107,6 +122,20 @@ export class MultiplayerGame {
             this.screenManager.showMpError(`Oda oluşturulamadı: ${(e as Error).message}`);
           }
         },
+
+        // Listeden direkt katılım (açık veya özel-kod giriş)
+        onMpJoinFromList: async (code: string) => {
+          try {
+            await this.roomManager.joinRoom(code.toUpperCase(), this.myName, this.myColorIndex);
+            this.roomCode = code.toUpperCase();
+            this.isHost   = false;
+            this.enterWaiting();
+          } catch (e) {
+            this.screenManager.showMpError(`Odaya katılamadı: ${(e as Error).message}`);
+          }
+        },
+
+        // Kod ile katılım (eski onMpJoinRoom yerine)
         onMpJoinRoom: async (code: string) => {
           try {
             await this.roomManager.joinRoom(code.toUpperCase(), this.myName, this.myColorIndex);
@@ -117,6 +146,43 @@ export class MultiplayerGame {
             this.screenManager.showMpError(`Odaya katılamadı: ${(e as Error).message}`);
           }
         },
+
+        // İstekli odaya istek gönder
+        onMpSendJoinRequest: async (code: string) => {
+          try {
+            await this.roomManager.sendJoinRequest(
+              code.toUpperCase(), this.myName, this.myColorIndex
+            );
+            this.screenManager.showMpError('Katılma isteği gönderildi — host onaylaması bekleniyor');
+          } catch (e) {
+            this.screenManager.showMpError(`İstek gönderilemedi: ${(e as Error).message}`);
+          }
+        },
+
+        // Host: isteği onayla
+        onMpApproveRequest: async (requesterId: string) => {
+          // Pending isteklerden isim/renk bilgisini almak için UI callback'i kullan
+          // ScreenManager bu veriyi callbacks aracılığıyla iletir
+          const req = this.screenManager.getPendingRequest(requesterId);
+          if (!req) return;
+          try {
+            await this.roomManager.approveRequest(
+              requesterId, req.name, req.colorIndex
+            );
+          } catch (e) {
+            this.screenManager.showMpError(`Onaylanamadı: ${(e as Error).message}`);
+          }
+        },
+
+        // Host: isteği reddet
+        onMpDeclineRequest: async (requesterId: string) => {
+          try {
+            await this.roomManager.declineRequest(requesterId);
+          } catch (e) {
+            this.screenManager.showMpError(`Reddedilemedi: ${(e as Error).message}`);
+          }
+        },
+
         onMpStartGame: async (levelId: number) => {
           this.selectedLevel = levelId;
           try {
@@ -125,18 +191,51 @@ export class MultiplayerGame {
             this.screenManager.showMpError(`Oyun başlatılamadı: ${(e as Error).message}`);
           }
         },
+
         onMpLeave: async () => {
           await this.roomManager.leaveRoom();
           this.cleanup();
           this.onBackToMenu();
         },
+
+        // Tekrar Oyna isteği gönder
+        onMpRequestRematch: async () => {
+          this.rematchRequested = true;
+          try {
+            await this.roomManager.requestRematch();
+            // Buton "Bekleniyor..." görünümüne ScreenManager geçirir
+            this.screenManager.setRematchWaiting();
+          } catch (e) {
+            this.screenManager.showMpError(`Tekrar oyna isteği gönderilemedi: ${(e as Error).message}`);
+          }
+        },
+
+        // Tekrar Oyna kabul
+        onMpAcceptRematch: async () => {
+          try {
+            await this.roomManager.respondToRematch(true);
+          } catch (e) {
+            this.screenManager.showMpError(`Yanıt gönderilemedi: ${(e as Error).message}`);
+          }
+        },
+
+        // Tekrar Oyna reddet
+        onMpDeclineRematch: async () => {
+          try {
+            await this.roomManager.respondToRematch(false);
+          } catch (e) { /* yoksay */ }
+          await this.roomManager.leaveRoom();
+          this.cleanup();
+          this.onBackToMenu();
+        },
+
         onMpPlayAgain: async () => {
           await this.roomManager.leaveRoom();
           this.cleanup();
-          // Aynı ekranda sıfırdan başla
           this.roomManager = new RoomManager(db, this.myPlayerId);
-          this.screenManager.show('mp-lobby');
+          this.showLobby();
         },
+
         onMpBackToMenu: async () => {
           await this.roomManager.leaveRoom();
           this.cleanup();
@@ -154,7 +253,25 @@ export class MultiplayerGame {
   start() {
     this.lastTime = performance.now();
     this.loop(this.lastTime);
-    this.screenManager.show('mp-name');
+
+    // Kaydedilmiş isim varsa lobi'ye direkt git
+    const savedName = getMpName();
+    if (savedName) {
+      this.myName       = savedName;
+      this.myColorIndex = getMpColorIndex();
+      this.showLobby();
+    } else {
+      this.screenManager.show('mp-name');
+    }
+  }
+
+  // Lobiye geç ve aktif oda listesini dinlemeye başla
+  private showLobby() {
+    this.screenManager.show('mp-lobby');
+    // Lobi ekranı DOM'da oluşturulduktan sonra listener'ı başlat
+    this.roomManager.listenToPublicRooms((rooms) => {
+      this.screenManager.updatePublicRooms(rooms);
+    });
   }
 
   stop() {
@@ -172,20 +289,25 @@ export class MultiplayerGame {
 
   private enterWaiting() {
     this.screenManager.show('mp-waiting', {
-      roomCode: this.roomCode,
-      isHost:   this.isHost,
-      players:  {},
+      roomCode:    this.roomCode,
+      isHost:      this.isHost,
+      players:     {},
       selectedLevel: this.selectedLevel,
       totalLevels:   getTotalLevels(),
     });
+
+    // Host + invite odası: join isteklerini dinle
+    if (this.isHost && this.roomVisibility === 'invite') {
+      this.roomManager.onJoinRequests((requests) => {
+        this.screenManager.updateMpJoinRequests(requests);
+      });
+    }
 
     // Oyuncu değişikliklerini dinle
     this.roomManager.onPlayersChange((players) => {
       this.players = players;
       this.screenManager.updateMpWaiting(players, this.roomCode, this.isHost, this.selectedLevel);
 
-      // Sadece gerçekten oyuncu VAR ama hepsi disconnected olduysa çık
-      // (boş ilk snapshot'ta tetiklenmesin diye Object.keys kontrolü)
       const allPlayers = Object.keys(players);
       const connected  = Object.values(players).filter((p) => p.connected);
       if (allPlayers.length > 0 && connected.length === 0) {
@@ -197,9 +319,6 @@ export class MultiplayerGame {
 
     // Oda durumu değişimini dinle
     this.roomManager.onRoomChange((info) => {
-      // roomState'i Firebase'den YAZMA — launchGame()/onGameFinished() yönetir.
-      // onRoomChange tüm oda path'ini dinlediğinden her hamle/karo yazısında
-      // tetiklenir; üzerine yazmak 'playing' state'ini 'countdown'a döndürür.
       this.selectedLevel = info.levelId;
 
       if (info.state === 'countdown' && this.gameStartAt === 0) {
@@ -216,6 +335,92 @@ export class MultiplayerGame {
         this.onGameFinished();
       }
     });
+
+    // Rematch dinleyicisi (oyun bittikten sonra da geçerli)
+    this.roomManager.onRematchChange((rematch) => {
+      if (!rematch) return;
+      // Başka biri istek atmışsa ve ben henüz cevap vermedim
+      if (rematch.requestedBy !== this.myPlayerId && !rematch.accepted?.[this.myPlayerId]) {
+        const requester = this.players[rematch.requestedBy];
+        this.screenManager.showRematchDialog(
+          requester?.name ?? '?',
+          () => this.callbacks_onMpAcceptRematch(),
+          () => this.callbacks_onMpDeclineRematch()
+        );
+      }
+      this.checkRematchResolution(rematch);
+    });
+  }
+
+  // Callback proxy metodları (screenManager callback'lerinin içinden çağrılamaz, bu yüzden burada sarıyoruz)
+  private async callbacks_onMpAcceptRematch() {
+    try {
+      await this.roomManager.respondToRematch(true);
+    } catch { /* yoksay */ }
+  }
+
+  private async callbacks_onMpDeclineRematch() {
+    try {
+      await this.roomManager.respondToRematch(false);
+    } catch { /* yoksay */ }
+    await this.roomManager.leaveRoom();
+    this.cleanup();
+    this.onBackToMenu();
+  }
+
+  private checkRematchResolution(rematch: RematchData) {
+    const accepted = rematch.accepted ?? {};
+    const accepted_ids = Object.entries(accepted)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    const declined_ids = Object.entries(accepted)
+      .filter(([, v]) => !v)
+      .map(([k]) => k);
+
+    // Reddeden oyuncuları odadan çıkar
+    for (const pid of declined_ids) {
+      if (pid === this.myPlayerId) {
+        this.roomManager.leaveRoom();
+        this.cleanup();
+        this.onBackToMenu();
+        return;
+      }
+    }
+
+    // Tüm oyuncular (requestedBy hariç) yanıt verdi mi?
+    const connectedPlayerIds = Object.entries(this.players)
+      .filter(([, p]) => p.connected)
+      .map(([pid]) => pid)
+      .filter((pid) => pid !== rematch.requestedBy);
+
+    if (connectedPlayerIds.length === 0) return;
+
+    const allAnswered = connectedPlayerIds.every(
+      (pid) => accepted[pid] !== undefined
+    );
+    if (!allAnswered) return;
+
+    // En az 1 kişi kabul etti mi?
+    const someAccepted = accepted_ids.some((pid) => pid !== rematch.requestedBy);
+    if (!someAccepted) {
+      // Hiç kimse kabul etmedi
+      this.roomManager.leaveRoom();
+      this.cleanup();
+      this.onBackToMenu();
+      return;
+    }
+
+    // Rematch başlat: temizle, yeni RoomManager al
+    if (this.isHost || rematch.requestedBy === this.myPlayerId) {
+      this.rematchStart();
+    }
+  }
+
+  private async rematchStart() {
+    await this.roomManager.leaveRoom();
+    this.cleanup();
+    this.roomManager = new RoomManager(db, this.myPlayerId);
+    this.showLobby();
   }
 
   // -------------------------------------------------------
@@ -279,7 +484,6 @@ export class MultiplayerGame {
         const prev = this.tileColors.get(key);
         if (prev !== owner.colorIndex) {
           this.tileColors.set(key, owner.colorIndex);
-          // Sahiplik animasyonu: level.paintAnimations'u güncelle
           const parts = key.split('_').map(Number);
           const [ky, kx] = parts;
           this.level?.paintAnimations.set(`${kx},${ky}`, performance.now());
@@ -292,10 +496,8 @@ export class MultiplayerGame {
       this.players = players;
       const connected = Object.values(players).filter((p) => p.connected);
       if (connected.length <= 1 && !this.gameEnding) {
-        // Tek oyuncu kaldı → otomatik bitir
         this.onGameFinished();
       }
-      // Uzak oyuncuların connected durumunu güncelle
       for (const [pid, rp] of this.remotePlayers) {
         rp.connected = players[pid]?.connected ?? false;
       }
@@ -344,7 +546,6 @@ export class MultiplayerGame {
     playSlide();
     this.myBall.startSlide(result);
 
-    // Firebase'e yaz (fire-and-forget)
     this.roomManager.sendMove(dir, seq);
   }
 
@@ -373,17 +574,12 @@ export class MultiplayerGame {
   private update(dt: number) {
     if (!this.level || !this.myBall) return;
 
-    // Kendi topumu güncelle
     const myPainted = this.myBall.update(dt);
     if (myPainted) {
       for (const tile of myPainted) {
         const isNew = this.level.paintTileMultiplayer(tile.x, tile.y);
         const key   = `${tile.y}_${tile.x}`;
-
-        // Yerel sahiplik ata
         this.tileColors.set(key, this.myColorIndex);
-
-        // Firebase'e karo sahipliği yaz (sadece yeni boyanan karolar için)
         if (isNew) {
           this.roomManager.claimTile(tile.x, tile.y);
         }
@@ -398,7 +594,6 @@ export class MultiplayerGame {
       }
     }
 
-    // Uzak oyuncuları güncelle
     for (const [pid, rp] of this.remotePlayers) {
       if (!rp.connected) continue;
 
@@ -406,8 +601,6 @@ export class MultiplayerGame {
       if (rpPainted) {
         for (const tile of rpPainted) {
           this.level.paintTileMultiplayer(tile.x, tile.y);
-          // Uzak oyuncu sahipliği: Firebase onTileOwnerChange'i bekle,
-          // ama yerel görsel için hemen ata
           const key = `${tile.y}_${tile.x}`;
           this.tileColors.set(key, rp.colorIndex);
         }
@@ -418,7 +611,6 @@ export class MultiplayerGame {
       }
     }
 
-    // Periyodik skor güncelleme (~500ms'de bir)
     if (Math.random() < 0.03) {
       const myScore = this.calcMyScore();
       this.roomManager.updateScore(myScore);
@@ -443,7 +635,6 @@ export class MultiplayerGame {
     this.gameEnding = true;
     this.input.setEnabled(false);
 
-    // Son skoru yaz
     const myScore = this.calcMyScore();
     this.roomManager.updateScore(myScore);
     this.roomManager.finishGame();
@@ -452,12 +643,12 @@ export class MultiplayerGame {
   }
 
   private onGameFinished() {
-    if (this.roomState === 'finished' && this.gameEnding) return; // tekrar çağrılmasın
+    if (this.roomState === 'finished' && this.gameEnding) return;
     this.roomState  = 'finished';
     this.gameEnding = true;
     this.input.setEnabled(false);
+    this.rematchRequested = false;
 
-    // Son skorları hesapla
     const finalScores: Record<string, number> = {};
     for (const [pid, pdata] of Object.entries(this.players)) {
       const colorIdx = pdata.colorIndex;
@@ -488,6 +679,7 @@ export class MultiplayerGame {
     this.gameStartAt = 0;
     this.roomState  = 'waiting';
     this.gameEnding = false;
+    this.rematchRequested = false;
     this.input.setEnabled(false);
     this.renderer.stopConfetti();
   }

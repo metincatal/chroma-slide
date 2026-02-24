@@ -108,3 +108,37 @@ export function getSelectedTheme(): string {
     return 'ice';
   }
 }
+
+// --- Çok oyunculu isim/renk kalıcılığı ---
+
+const MP_NAME_KEY         = 'chroma_mp_name';
+const MP_COLOR_INDEX_KEY  = 'chroma_mp_color';
+
+export function getMpName(): string | null {
+  try {
+    return localStorage.getItem(MP_NAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveMpName(name: string): void {
+  try {
+    localStorage.setItem(MP_NAME_KEY, name);
+  } catch {}
+}
+
+export function getMpColorIndex(): number {
+  try {
+    const raw = localStorage.getItem(MP_COLOR_INDEX_KEY);
+    if (raw !== null) return parseInt(raw, 10);
+  } catch {}
+  // Yoksa rastgele bir indeks döndür (PAINT_GRADIENTS uzunluğu 8 kabul)
+  return Math.floor(Math.random() * 8);
+}
+
+export function saveMpColorIndex(index: number): void {
+  try {
+    localStorage.setItem(MP_COLOR_INDEX_KEY, String(index));
+  } catch {}
+}

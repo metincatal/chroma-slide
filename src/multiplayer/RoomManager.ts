@@ -3,10 +3,10 @@ import {
   ref,
   set,
   get,
+  update,
   onValue,
   runTransaction,
   onDisconnect,
-  serverTimestamp,
 } from 'firebase/database';
 import { Direction } from '../utils/constants';
 
@@ -18,6 +18,7 @@ export interface PlayerData {
 }
 
 export type RoomState = 'waiting' | 'countdown' | 'playing' | 'finished';
+export type RoomVisibility = 'public' | 'invite' | 'private';
 
 export interface RoomInfo {
   state: RoomState;
@@ -25,6 +26,26 @@ export interface RoomInfo {
   levelId: number;
   createdAt: number;
   gameStartAt: number | null;
+  visibility?: RoomVisibility;
+}
+
+export interface PublicRoomEntry {
+  hostName: string;
+  playerCount: number;
+  visibility: 'public' | 'invite';
+  createdAt: number;
+  code: string; // İstemci tarafında eklenir
+}
+
+export interface JoinRequest {
+  name: string;
+  colorIndex: number;
+  timestamp: number;
+}
+
+export interface RematchData {
+  requestedBy: string;
+  accepted?: Record<string, boolean>;
 }
 
 export class RoomManager {
@@ -36,11 +57,11 @@ export class RoomManager {
   private processedMoves: Map<string, Set<number>> = new Map();
 
   constructor(db: Database, playerId: string) {
-    this.db    = db;
-    this.myId  = playerId;
+    this.db   = db;
+    this.myId = playerId;
   }
 
-  get playerId(): string      { return this.myId; }
+  get playerId(): string { return this.myId; }
   get currentRoomCode(): string | null { return this.roomCode; }
 
   // --- Yardımcılar ---
@@ -56,7 +77,11 @@ export class RoomManager {
 
   // --- Oda işlemleri ---
 
-  async createRoom(name: string, colorIndex: number): Promise<string> {
+  async createRoom(
+    name: string,
+    colorIndex: number,
+    visibility: RoomVisibility = 'private'
+  ): Promise<string> {
     let code = '';
     for (let attempt = 0; attempt < 5; attempt++) {
       code = this.generateCode();
@@ -67,23 +92,42 @@ export class RoomManager {
 
     this.roomCode = code;
 
-    await set(ref(this.db, `rooms/${code}`), {
-      state:       'waiting',
-      hostId:      this.myId,
-      levelId:     1,
-      createdAt:   Date.now(),
-      gameStartAt: null,
-    });
+    // Oda ve host oyuncuyu aynı anda yaz
+    const updates: Record<string, unknown> = {
+      [`rooms/${code}/state`]:       'waiting',
+      [`rooms/${code}/hostId`]:      this.myId,
+      [`rooms/${code}/levelId`]:     1,
+      [`rooms/${code}/createdAt`]:   Date.now(),
+      [`rooms/${code}/gameStartAt`]: null,
+      [`rooms/${code}/visibility`]:  visibility,
+      [`rooms/${code}/players/${this.myId}`]: {
+        name,
+        colorIndex,
+        connected: true,
+        score:     0,
+      },
+    };
 
-    await set(ref(this.db, `rooms/${code}/players/${this.myId}`), {
-      name,
-      colorIndex,
-      connected: true,
-      score:     0,
-    });
+    // Açık veya istekli odayı publicRooms'a ekle
+    if (visibility === 'public' || visibility === 'invite') {
+      updates[`publicRooms/${code}`] = {
+        hostName:    name,
+        playerCount: 1,
+        visibility,
+        createdAt:   Date.now(),
+      };
+    }
 
+    await update(ref(this.db), updates);
+
+    // Bağlantı kesilince oyuncuyu disconnected yap
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
+
+    // Bağlantı kesilince publicRooms kaydını sil
+    if (visibility === 'public' || visibility === 'invite') {
+      onDisconnect(ref(this.db, `publicRooms/${code}`)).remove();
+    }
 
     return code;
   }
@@ -93,7 +137,7 @@ export class RoomManager {
     if (!roomSnap.exists()) throw new Error('Oda bulunamadı');
 
     const room = roomSnap.val() as RoomInfo;
-    if (room.state === 'playing') throw new Error('Oyun zaten başlamış');
+    if (room.state === 'playing')  throw new Error('Oyun zaten başlamış');
     if (room.state === 'finished') throw new Error('Oyun bitti');
 
     const playersSnap = await get(ref(this.db, `rooms/${code}/players`));
@@ -104,24 +148,122 @@ export class RoomManager {
 
     this.roomCode = code;
 
-    await set(ref(this.db, `rooms/${code}/players/${this.myId}`), {
-      name,
-      colorIndex,
-      connected: true,
-      score:     0,
-    });
+    const updates: Record<string, unknown> = {
+      [`rooms/${code}/players/${this.myId}`]: {
+        name,
+        colorIndex,
+        connected: true,
+        score:     0,
+      },
+    };
+
+    // Açık/istekli odalarda playerCount güncelle
+    const visib = room.visibility;
+    if (visib === 'public' || visib === 'invite') {
+      updates[`publicRooms/${code}/playerCount`] = connectedCount + 1;
+    }
+
+    await update(ref(this.db), updates);
 
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
   }
 
+  // --- İstek tabanlı katılım (invite odalar) ---
+
+  async sendJoinRequest(code: string, name: string, colorIndex: number): Promise<void> {
+    const roomSnap = await get(ref(this.db, `rooms/${code}`));
+    if (!roomSnap.exists()) throw new Error('Oda bulunamadı');
+
+    await set(ref(this.db, `rooms/${code}/joinRequests/${this.myId}`), {
+      name,
+      colorIndex,
+      timestamp: Date.now(),
+    });
+  }
+
+  async approveRequest(
+    requesterId: string,
+    requesterName: string,
+    requesterColorIndex: number
+  ): Promise<void> {
+    if (!this.roomCode) return;
+    const updates: Record<string, unknown> = {
+      [`rooms/${this.roomCode}/players/${requesterId}`]: {
+        name:       requesterName,
+        colorIndex: requesterColorIndex,
+        connected:  true,
+        score:      0,
+      },
+      [`rooms/${this.roomCode}/joinRequests/${requesterId}`]: null,
+    };
+
+    // publicRooms playerCount'u güncelle
+    const snap = await get(ref(this.db, `publicRooms/${this.roomCode}/playerCount`));
+    if (snap.exists()) {
+      updates[`publicRooms/${this.roomCode}/playerCount`] = (snap.val() as number) + 1;
+    }
+
+    await update(ref(this.db), updates);
+  }
+
+  async declineRequest(requesterId: string): Promise<void> {
+    if (!this.roomCode) return;
+    await set(ref(this.db, `rooms/${this.roomCode}/joinRequests/${requesterId}`), null);
+  }
+
+  onJoinRequests(
+    callback: (requests: Record<string, JoinRequest>) => void
+  ): () => void {
+    if (!this.roomCode) return () => {};
+    const unsub = onValue(
+      ref(this.db, `rooms/${this.roomCode}/joinRequests`),
+      (snap) => callback((snap.val() as Record<string, JoinRequest>) || {})
+    );
+    this.unsubscribers.push(unsub);
+    return unsub;
+  }
+
+  // --- Aktif oda listesi ---
+
+  listenToPublicRooms(
+    callback: (rooms: PublicRoomEntry[]) => void
+  ): () => void {
+    const unsub = onValue(
+      ref(this.db, 'publicRooms'),
+      (snap) => {
+        const raw = (snap.val() as Record<string, Omit<PublicRoomEntry, 'code'>>) || {};
+        const list: PublicRoomEntry[] = Object.entries(raw).map(([code, data]) => ({
+          ...data,
+          code,
+        }));
+        callback(list);
+      }
+    );
+    this.unsubscribers.push(unsub);
+    return unsub;
+  }
+
+  async removePublicRoom(): Promise<void> {
+    if (!this.roomCode) return;
+    await set(ref(this.db, `publicRooms/${this.roomCode}`), null);
+  }
+
+  // --- Oyun başlatma (atomik) ---
+
   async startGame(levelId: number): Promise<void> {
     if (!this.roomCode) throw new Error('Odada değilsiniz');
     const now = Date.now();
-    await set(ref(this.db, `rooms/${this.roomCode}/levelId`),     levelId);
-    await set(ref(this.db, `rooms/${this.roomCode}/state`),       'countdown');
-    await set(ref(this.db, `rooms/${this.roomCode}/gameStartAt`), now + 3000);
+    await update(ref(this.db, `rooms/${this.roomCode}`), {
+      levelId,
+      state:       'countdown',
+      gameStartAt: now + 3000,
+    });
+    // Oyun başlayınca publicRooms'tan sil
+    await this.removePublicRoom();
   }
+
+  // --- Hamle gönderme ---
 
   async sendMove(dir: Direction, seq: number): Promise<void> {
     if (!this.roomCode) return;
@@ -150,6 +292,38 @@ export class RoomManager {
     if (!this.roomCode) return;
     await set(ref(this.db, `rooms/${this.roomCode}/state`), 'finished');
   }
+
+  // --- Rematch ---
+
+  async requestRematch(): Promise<void> {
+    if (!this.roomCode) return;
+    await set(ref(this.db, `rooms/${this.roomCode}/rematch`), {
+      requestedBy: this.myId,
+      accepted:    {},
+    });
+  }
+
+  async respondToRematch(accept: boolean): Promise<void> {
+    if (!this.roomCode) return;
+    await set(
+      ref(this.db, `rooms/${this.roomCode}/rematch/accepted/${this.myId}`),
+      accept
+    );
+  }
+
+  onRematchChange(
+    callback: (rematch: RematchData | null) => void
+  ): () => void {
+    if (!this.roomCode) return () => {};
+    const unsub = onValue(
+      ref(this.db, `rooms/${this.roomCode}/rematch`),
+      (snap) => callback(snap.exists() ? (snap.val() as RematchData) : null)
+    );
+    this.unsubscribers.push(unsub);
+    return unsub;
+  }
+
+  // --- Oda terk ---
 
   async leaveRoom(): Promise<void> {
     if (!this.roomCode) return;
@@ -238,8 +412,8 @@ export class RoomManager {
 
   cleanup(): void {
     for (const unsub of this.unsubscribers) unsub();
-    this.unsubscribers    = [];
-    this.processedMoves   = new Map();
-    this.roomCode         = null;
+    this.unsubscribers  = [];
+    this.processedMoves = new Map();
+    this.roomCode       = null;
   }
 }
