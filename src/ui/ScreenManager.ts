@@ -155,8 +155,7 @@ export class ScreenManager {
     if (!list) return;
     list.innerHTML = this.buildPlayerListHtml(players);
 
-    const lvlInput = this.overlay.querySelector('#mp-level-input') as HTMLInputElement;
-    if (lvlInput) lvlInput.value = String(selectedLevel);
+    // Level input'u burada güncelleme — host'un elle girdiği değeri ezer
 
     const startBtn = this.overlay.querySelector('#btn-mp-start') as HTMLButtonElement;
     if (startBtn) {

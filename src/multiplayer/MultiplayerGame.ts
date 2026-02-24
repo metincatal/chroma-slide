@@ -410,10 +410,8 @@ export class MultiplayerGame {
       return;
     }
 
-    // Rematch başlat: temizle, yeni RoomManager al
-    if (this.isHost || rematch.requestedBy === this.myPlayerId) {
-      this.rematchStart();
-    }
+    // Tüm oyuncular (kabul edenler) lobiye git
+    this.rematchStart();
   }
 
   private async rematchStart() {

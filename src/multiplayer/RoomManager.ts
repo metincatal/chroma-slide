@@ -113,22 +113,6 @@ export class RoomManager {
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
 
-    // Açık veya istekli odayı publicRooms'a kaydet (ayrı işlem — izin yoksa sessizce geç)
-    if (visibility === 'public' || visibility === 'invite') {
-      try {
-        await set(ref(this.db, `publicRooms/${code}`), {
-          hostName:    name,
-          playerCount: 1,
-          visibility,
-          createdAt:   Date.now(),
-        });
-        onDisconnect(ref(this.db, `publicRooms/${code}`)).remove();
-      } catch {
-        // publicRooms yazma izni yoksa listeye eklenmez ama oda açılır
-        console.warn('publicRooms yazılamadı — Firebase kurallarını kontrol edin');
-      }
-    }
-
     return code;
   }
 
@@ -157,17 +141,6 @@ export class RoomManager {
 
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
-
-    // Açık/istekli odalarda playerCount güncelle (izin yoksa sessizce geç)
-    const visib = room.visibility;
-    if (visib === 'public' || visib === 'invite') {
-      try {
-        await set(
-          ref(this.db, `publicRooms/${code}/playerCount`),
-          connectedCount + 1
-        );
-      } catch { /* publicRooms izni yoksa yoksay */ }
-    }
   }
 
   // --- İstek tabanlı katılım (invite odalar) ---
@@ -201,16 +174,6 @@ export class RoomManager {
       [`joinRequests/${requesterId}`]: null,
     });
 
-    // publicRooms playerCount güncelle (izin yoksa sessizce geç)
-    try {
-      const snap = await get(ref(this.db, `publicRooms/${this.roomCode}/playerCount`));
-      if (snap.exists()) {
-        await set(
-          ref(this.db, `publicRooms/${this.roomCode}/playerCount`),
-          (snap.val() as number) + 1
-        );
-      }
-    } catch { /* yoksay */ }
   }
 
   async declineRequest(requesterId: string): Promise<void> {
@@ -230,19 +193,36 @@ export class RoomManager {
     return unsub;
   }
 
-  // --- Aktif oda listesi ---
+  // --- Aktif oda listesi (rooms/ path'inden filtrele — ayrı Firebase kuralı gerektirmez) ---
 
   listenToPublicRooms(
     callback: (rooms: PublicRoomEntry[]) => void
   ): () => void {
     const unsub = onValue(
-      ref(this.db, 'publicRooms'),
+      ref(this.db, 'rooms'),
       (snap) => {
-        const raw = (snap.val() as Record<string, Omit<PublicRoomEntry, 'code'>>) || {};
-        const list: PublicRoomEntry[] = Object.entries(raw).map(([code, data]) => ({
-          ...data,
-          code,
-        }));
+        const allRooms = (snap.val() as Record<string, RoomInfo & {
+          players?: Record<string, PlayerData>;
+        }>) || {};
+
+        const list: PublicRoomEntry[] = [];
+        for (const [code, room] of Object.entries(allRooms)) {
+          if (
+            room.state === 'waiting' &&
+            (room.visibility === 'public' || room.visibility === 'invite')
+          ) {
+            const players = room.players ?? {};
+            const playerCount = Object.values(players).filter((p) => p.connected).length;
+            const hostPlayer  = players[room.hostId];
+            list.push({
+              code,
+              hostName:    hostPlayer?.name ?? '?',
+              playerCount: playerCount || 1,
+              visibility:  room.visibility as 'public' | 'invite',
+              createdAt:   room.createdAt,
+            });
+          }
+        }
         callback(list);
       }
     );
@@ -251,10 +231,7 @@ export class RoomManager {
   }
 
   async removePublicRoom(): Promise<void> {
-    if (!this.roomCode) return;
-    try {
-      await set(ref(this.db, `publicRooms/${this.roomCode}`), null);
-    } catch { /* publicRooms izni yoksa yoksay */ }
+    // publicRooms/ path'i artık kullanılmıyor; rooms/ path'i zaten state değişimiyle güncelleniyor
   }
 
   // --- Oyun başlatma (atomik) ---
