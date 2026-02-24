@@ -342,11 +342,41 @@ export class ScreenManager {
   }
 
   // Bir oyuncu ayrıldığında "Tekrar Oyna" butonunu düşme animasyonuyla gizle
-  hideRematchButton() {
+  hideRematchButton(leavingName?: string) {
     const btn = this.overlay.querySelector('#btn-mp-again') as HTMLButtonElement;
     if (!btn || btn.classList.contains('mp-btn-dropping')) return;
     btn.classList.add('mp-btn-dropping');
     setTimeout(() => btn.remove(), 400);
+    if (leavingName) {
+      this.showMpError(`${leavingName} odayı terk etti.`);
+    }
+  }
+
+  // İstekli odada onay bekleme dialog'unu göster
+  showApprovalWaiting(code: string, onCancel: () => void) {
+    this.overlay.querySelector('.mp-approval-dialog')?.remove();
+    const dialog = document.createElement('div');
+    dialog.className = 'mp-approval-dialog';
+    dialog.innerHTML = `
+      <div class="mp-approval-box">
+        <div class="mp-approval-title">İstek Gönderildi</div>
+        <div class="mp-approval-code">Oda: <strong>${code}</strong></div>
+        <div class="mp-approval-hint">Host onaylamasını bekliyorsun...</div>
+        <div class="mp-waiting-dots"><span></span><span></span><span></span></div>
+        <button class="btn btn-secondary" id="btn-approval-cancel">İptal</button>
+      </div>
+    `;
+    this.overlay.appendChild(dialog);
+    dialog.querySelector('#btn-approval-cancel')!.addEventListener('click', () => {
+      playClick();
+      dialog.remove();
+      onCancel();
+    });
+  }
+
+  // Onay bekleme dialog'unu kaldır
+  hideApprovalWaiting() {
+    this.overlay.querySelector('.mp-approval-dialog')?.remove();
   }
 
   // -------------------------------------------------------

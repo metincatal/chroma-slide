@@ -1232,6 +1232,52 @@ html, body {
 }
 
 /* ============================================================
+   ONAY BEKLEME DIALOG
+   ============================================================ */
+
+.mp-approval-dialog {
+  position: fixed;
+  inset: 0;
+  background: rgba(30, 26, 22, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: fadeIn 0.2s ease;
+}
+
+.mp-approval-box {
+  background: #f5f1eb;
+  border-radius: 20px;
+  padding: 28px 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 300px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.mp-approval-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #5a5048;
+}
+
+.mp-approval-code {
+  font-size: 14px;
+  color: #6a6058;
+  letter-spacing: 0.5px;
+}
+
+.mp-approval-hint {
+  font-size: 13px;
+  color: rgba(106, 96, 88, 0.65);
+  text-align: center;
+}
+
+/* ============================================================
    MP-RESULTS EKRANI
    ============================================================ */
 
@@ -1291,7 +1337,16 @@ html, body {
 
 .mp-results-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 280px;
+}
+
+.mp-results-actions .btn {
+  width: 100%;
+  text-align: center;
 }
 
 /* Tekrar Oyna butonu düşme animasyonu (oyuncu ayrıldığında) */

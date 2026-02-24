@@ -407,6 +407,43 @@ export class RoomManager {
     return unsub;
   }
 
+  // --- İstek tabanlı katılım: onay bekleme ---
+
+  // Davetli odada istek gönderildikten sonra onay bekle.
+  // unsubscribers'a eklenmez — çağıran taraf yönetir.
+  listenForApproval(code: string, onApproved: () => void): () => void {
+    let fired = false;
+    const unsub = onValue(
+      ref(this.db, `rooms/${code}/players/${this.myId}`),
+      (snap) => {
+        if (snap.exists() && !fired) {
+          fired = true;
+          unsub();
+          onApproved();
+        }
+      }
+    );
+    return unsub;
+  }
+
+  // Dışarıdan roomCode'u ayarla (istek onayı sonrası)
+  setRoomCode(code: string): void {
+    this.roomCode = code;
+  }
+
+  // onDisconnect handler'ı kur (istek onayı sonrası çağrılır)
+  setupOnDisconnect(): void {
+    if (!this.roomCode) return;
+    onDisconnect(ref(this.db, `rooms/${this.roomCode}/players/${this.myId}/connected`))
+      .set(false);
+  }
+
+  // Host transferi (açık odada host ayrılınca)
+  async transferHost(newHostId: string): Promise<void> {
+    if (!this.roomCode) return;
+    await update(ref(this.db, `rooms/${this.roomCode}`), { hostId: newHostId });
+  }
+
   // --- Rematch sıfırlama ---
 
   // Oda verilerini sıfırla (state → waiting, hamle/renk/rematch temizle)

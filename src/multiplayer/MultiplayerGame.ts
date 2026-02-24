@@ -67,6 +67,12 @@ export class MultiplayerGame {
   private rematchRequested = false;
   private rematchResolved  = false;
 
+  // İstek onayı bekleme
+  private approvalUnsub: (() => void) | null = null;
+
+  // Mevcut oda host kimliği (host transferi takibi için)
+  private roomHostId = '';
+
   constructor(canvas: HTMLCanvasElement, overlay: HTMLDivElement, onBackToMenu: () => void) {
     this.canvas      = canvas;
     this.onBackToMenu = onBackToMenu;
@@ -150,11 +156,28 @@ export class MultiplayerGame {
 
         // İstekli odaya istek gönder
         onMpSendJoinRequest: async (code: string) => {
+          const upperCode = code.toUpperCase();
+          // Önceki bekleyen onay varsa iptal et
+          if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
           try {
-            await this.roomManager.sendJoinRequest(
-              code.toUpperCase(), this.myName, this.myColorIndex
-            );
-            this.screenManager.showMpError('Katılma isteği gönderildi — host onaylaması bekleniyor');
+            await this.roomManager.sendJoinRequest(upperCode, this.myName, this.myColorIndex);
+            this.roomCode = upperCode;
+            this.isHost   = false;
+
+            // Onay bekleme dialog'unu göster
+            this.screenManager.showApprovalWaiting(upperCode, () => {
+              if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
+              this.roomCode = '';
+            });
+
+            // Host onayladığında bekleme odasına gir
+            this.approvalUnsub = this.roomManager.listenForApproval(upperCode, () => {
+              this.approvalUnsub = null;
+              this.screenManager.hideApprovalWaiting();
+              this.roomManager.setRoomCode(upperCode);
+              this.roomManager.setupOnDisconnect();
+              this.enterWaiting();
+            });
           } catch (e) {
             this.screenManager.showMpError(`İstek gönderilemedi: ${(e as Error).message}`);
           }
@@ -200,6 +223,15 @@ export class MultiplayerGame {
         },
 
         onMpLeave: async () => {
+          // Host açık odada ayrılırsa, sıradaki oyuncuya host transferi yap
+          if (this.isHost && this.roomVisibility !== 'invite' && this.roomVisibility !== 'private') {
+            const next = Object.entries(this.players)
+              .filter(([pid, p]) => pid !== this.myPlayerId && p.connected)
+              .sort(([a], [b]) => a.localeCompare(b))[0];
+            if (next) {
+              try { await this.roomManager.transferHost(next[0]); } catch { /* yoksay */ }
+            }
+          }
           await this.roomManager.leaveRoom();
           this.cleanup();
           this.onBackToMenu();
@@ -281,6 +313,7 @@ export class MultiplayerGame {
 
   // Lobiye geç ve aktif oda listesini dinlemeye başla
   private showLobby() {
+    if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
     this.screenManager.show('mp-lobby');
     // Lobi ekranı DOM'da oluşturulduktan sonra listener'ı başlat
     this.roomManager.listenToPublicRooms((rooms) => {
@@ -322,18 +355,59 @@ export class MultiplayerGame {
       this.players = players;
       this.screenManager.updateMpWaiting(players, this.roomCode, this.isHost, this.selectedLevel);
 
-      const allPlayers = Object.keys(players);
-      const connected  = Object.values(players).filter((p) => p.connected);
-      if (allPlayers.length > 0 && connected.length === 0) {
+      const connected = Object.values(players).filter((p) => p.connected);
+      if (Object.keys(players).length > 0 && connected.length === 0) {
         this.roomManager.leaveRoom();
         this.cleanup();
         this.onBackToMenu();
+        return;
+      }
+
+      // Host ayrıldıysa ve ben host değilsem
+      if (this.roomHostId && players[this.roomHostId] && !players[this.roomHostId].connected && !this.isHost) {
+        // Küçük bir gecikme: önce onRoomChange ile host transferi gelmiş olabilir
+        const capturedHostId = this.roomHostId;
+        setTimeout(() => {
+          // Hâlâ aynı host ve ben hâlâ host değilsem
+          if (this.roomHostId !== capturedHostId || this.isHost) return;
+
+          if (this.roomVisibility === 'invite' || this.roomVisibility === 'private') {
+            // İstekli/Özel oda: host ayrıldı → oda kapanıyor
+            this.screenManager.showMpError('Host odadan ayrıldı. Oda kapatılıyor...');
+            setTimeout(() => {
+              this.roomManager.leaveRoom();
+              this.cleanup();
+              this.onBackToMenu();
+            }, 2000);
+          } else {
+            // Açık oda: crash/beklenmeyen ayrılış → alfabetik ilk oyuncu host olur
+            const sorted = Object.entries(players)
+              .filter(([, p]) => p.connected)
+              .sort(([a], [b]) => a.localeCompare(b));
+            if (sorted.length > 0 && sorted[0][0] === this.myPlayerId) {
+              this.roomManager.transferHost(this.myPlayerId).catch(() => {});
+            }
+          }
+        }, 800);
       }
     });
 
     // Oda durumu değişimini dinle
     this.roomManager.onRoomChange((info) => {
       this.selectedLevel = info.levelId;
+
+      // Oda görünürlüğünü güncelle (misafirler için önemli)
+      if (info.visibility) this.roomVisibility = info.visibility;
+
+      // Host değişimini takip et
+      const prevHostId = this.roomHostId;
+      this.roomHostId = info.hostId;
+      if (prevHostId && prevHostId !== info.hostId && info.hostId === this.myPlayerId) {
+        // Ben yeni host oldum
+        this.isHost = true;
+        this.screenManager.showMpError('Oda sahibi oldun! Oyunu başlatabilirsin.');
+        this.screenManager.updateMpWaiting(this.players, this.roomCode, true, this.selectedLevel);
+      }
 
       if (info.state === 'countdown' && this.gameStartAt === 0) {
         this.gameStartAt = info.gameStartAt ?? Date.now() + 3000;
@@ -536,6 +610,11 @@ export class MultiplayerGame {
 
     // Oyuncu bağlantı değişimlerini takip et
     this.roomManager.onPlayersChange((players) => {
+      // Ayrılan oyuncuyu bul (bağlantısı kesilenleri önceki durumla karşılaştır)
+      const newlyDisconnected = Object.entries(players)
+        .filter(([pid, p]) => !p.connected && this.players[pid]?.connected)
+        .map(([, p]) => p.name);
+
       this.players = players;
       const connected = Object.values(players).filter((p) => p.connected);
       if (connected.length <= 1 && !this.gameEnding) {
@@ -543,7 +622,7 @@ export class MultiplayerGame {
       }
       // Sonuç ekranındayken birisi ayrılırsa "Tekrar Oyna" butonunu gizle
       if (this.roomState === 'finished' && connected.length <= 1) {
-        this.screenManager.hideRematchButton();
+        this.screenManager.hideRematchButton(newlyDisconnected[0]);
       }
       for (const [pid, rp] of this.remotePlayers) {
         rp.connected = players[pid]?.connected ?? false;
@@ -718,6 +797,7 @@ export class MultiplayerGame {
   // -------------------------------------------------------
 
   private cleanup() {
+    if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
     this.level         = null;
     this.myBall        = null;
     this.remotePlayers.clear();
@@ -725,6 +805,7 @@ export class MultiplayerGame {
     this.moveSeq       = 0;
     this.gameStartAt   = 0;
     this.roomState     = 'waiting';
+    this.roomHostId    = '';
     this.gameEnding    = false;
     this.rematchRequested = false;
     this.rematchResolved  = false;
