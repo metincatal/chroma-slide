@@ -200,6 +200,23 @@ export class ScreenManager {
     scoresEl.innerHTML = this.buildScoreChipsHtml(players, scores, myId);
   }
 
+  // Üstten mavi bilgi toastı (host transferi vb.)
+  showMpInfo(message: string) {
+    const existing = this.overlay.querySelector('.mp-info-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'mp-info-toast';
+    toast.textContent = message;
+    this.overlay.appendChild(toast);
+
+    requestAnimationFrame(() => toast.classList.add('mp-info-toast-show'));
+    setTimeout(() => {
+      toast.classList.remove('mp-info-toast-show');
+      setTimeout(() => toast.remove(), 300);
+    }, 3500);
+  }
+
   showMpError(message: string) {
     const existing = this.overlay.querySelector('.mp-error-toast');
     if (existing) existing.remove();
@@ -268,19 +285,14 @@ export class ScreenManager {
 
     container.innerHTML = rooms
       .map((room) => {
-        const lockIcon = room.visibility === 'invite'
-          ? '<span class="mp-room-lock">🔒</span>'
-          : '<span class="mp-room-open">🌐</span>';
-        const btnText  = room.visibility === 'invite' ? 'İstek Gönder' : 'Katıl';
-        const action   = room.visibility === 'invite'
-          ? `onMpSendJoinRequest:'${room.code}'`
-          : `onMpJoinFromList:'${room.code}'`;
+        const icon    = room.visibility === 'invite' ? '🔒' : '🌐';
+        const btnText = room.visibility === 'invite' ? 'İstek Gönder' : 'Katıl';
         return `
-          <div class="mp-room-item">
-            ${lockIcon}
-            <div class="mp-room-info">
-              <span class="mp-room-host">${room.hostName}</span>
-              <span class="mp-room-players">${room.playerCount}/4 oyuncu</span>
+          <div class="mp-room-card">
+            <div class="mp-room-card-icon">${icon}</div>
+            <div class="mp-room-card-info">
+              <div class="mp-room-card-name">${room.hostName}</div>
+              <div class="mp-room-card-count">${room.playerCount}/4 oyuncu</div>
             </div>
             <button class="mp-room-join-btn" data-code="${room.code}" data-vis="${room.visibility}">
               ${btnText}
@@ -290,7 +302,6 @@ export class ScreenManager {
       })
       .join('');
 
-    // Butonlara event ekle
     container.querySelectorAll('.mp-room-join-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         playClick();
@@ -816,66 +827,52 @@ export class ScreenManager {
   }
 
   private showMpLobby() {
-    // Visibility seçimi için varsayılan
     this.selectedVisibility = 'private';
 
     const html = `
       <div class="mp-screen mp-lobby-screen">
-        <div class="mp-lobby-card">
+        <button class="back-btn" id="btn-mp-back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
 
-          <!-- İsim satırı -->
-          <div class="mp-lobby-name-row">
-            <div class="mp-lobby-section-label">Yeni oyun</div>
+        <div class="mp-lobby-inner">
+          <div class="mp-lobby-top">
+            <div class="mp-lobby-page-title">Çok Oyunculu</div>
             <button class="mp-change-name-btn" id="btn-mp-change-name">İsmi Değiştir</button>
           </div>
 
-          <!-- Görünürlük seçici -->
-          <div class="mp-visibility-picker" id="mp-vis-picker">
-            <button class="mp-vis-btn active" data-vis="private">Özel</button>
-            <button class="mp-vis-btn" data-vis="public">Açık</button>
-            <button class="mp-vis-btn" data-vis="invite">İstekli</button>
+          <div class="mp-lobby-actions">
+            <div class="mp-action-panel">
+              <div class="mp-panel-label">Yeni Oda</div>
+              <div class="mp-visibility-picker" id="mp-vis-picker">
+                <button class="mp-vis-btn active" data-vis="private">Özel</button>
+                <button class="mp-vis-btn" data-vis="public">Açık</button>
+                <button class="mp-vis-btn" data-vis="invite">Davetli</button>
+              </div>
+              <button class="btn btn-mode-multi mp-panel-btn" id="btn-create-room">OLUŞTUR</button>
+            </div>
+
+            <div class="mp-action-panel">
+              <div class="mp-panel-label">Koda Katıl</div>
+              <input class="mp-code-input" id="mp-code-input" type="text"
+                placeholder="X X X X" maxlength="4" autocomplete="off" inputmode="text" />
+              <button class="btn btn-mode-thinking mp-panel-btn" id="btn-join-room">KATIL</button>
+            </div>
           </div>
 
-          <button class="btn btn-mode-multi mp-full-btn" id="btn-create-room">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            ODA OLUŞTUR
-          </button>
-
-          <div class="mp-lobby-divider">
-            <span>veya bir odaya katıl</span>
-          </div>
-
-          <div class="mp-lobby-section">
-            <div class="mp-lobby-section-label">Oda kodu</div>
-            <input class="mp-code-input" id="mp-code-input" type="text"
-              placeholder="X X X X" maxlength="4" autocomplete="off"
-              inputmode="text" />
-            <button class="btn btn-mode-thinking mp-full-btn" id="btn-join-room">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-              ODAYA KATIL
-            </button>
-          </div>
-
-          <!-- Aktif odalar listesi -->
-          <div class="mp-lobby-divider">
-            <span>aktif odalar</span>
-          </div>
-          <div class="mp-rooms-section">
+          <div class="mp-rooms-panel">
+            <div class="mp-rooms-panel-title">Aktif Odalar</div>
             <div class="mp-rooms-list" id="mp-rooms-list">
               <div class="mp-rooms-empty">Yükleniyor...</div>
             </div>
           </div>
-
         </div>
-
-        <button class="mp-text-btn" id="btn-mp-back">← Geri</button>
       </div>
     `;
     this.overlay.innerHTML = html;
 
     const codeInput = this.overlay.querySelector('#mp-code-input') as HTMLInputElement;
 
-    // Visibility picker
     this.overlay.querySelectorAll('.mp-vis-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.overlay.querySelectorAll('.mp-vis-btn').forEach((b) => b.classList.remove('active'));
