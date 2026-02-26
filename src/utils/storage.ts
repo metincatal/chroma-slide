@@ -160,3 +160,16 @@ export function saveMpColorIndex(index: number): void {
     localStorage.setItem(MP_COLOR_INDEX_KEY, String(index));
   } catch {}
 }
+
+// --- Oyuncu kimliği (multiplayer + presence) ---
+
+const MP_ID_KEY = 'chroma_mp_id';
+
+export function getOrCreatePlayerId(): string {
+  let id = localStorage.getItem(MP_ID_KEY);
+  if (!id) {
+    id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    localStorage.setItem(MP_ID_KEY, id);
+  }
+  return id;
+}

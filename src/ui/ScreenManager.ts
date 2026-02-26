@@ -90,7 +90,7 @@ export class ScreenManager {
         });
         break;
       case 'mp-name':    this.showMpName();  break;
-      case 'mp-lobby':   this.showMpLobby(); break;
+      case 'mp-lobby':   this.showMpLobby((data?.playerName as string) ?? ''); break;
       case 'mp-waiting':
         this.showMpWaiting(
           (data?.roomCode as string) ?? '',
@@ -584,6 +584,10 @@ export class ScreenManager {
       <div class="menu-screen">
         <div class="menu-title"><span class="chroma">Chroma</span>Slide</div>
         <div class="menu-subtitle">Kayarak Boya, Labirenti Coz</div>
+        <div class="menu-online-badge">
+          <span class="online-dot"></span>
+          <span id="online-count-text">...</span>
+        </div>
         <div class="menu-modes">
           <button class="btn btn-mode-thinking" id="btn-thinking">
             <svg class="mode-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>
@@ -826,8 +830,16 @@ export class ScreenManager {
     });
   }
 
-  private showMpLobby() {
+  private showMpLobby(playerName: string = '') {
     this.selectedVisibility = 'private';
+
+    const nameLabel = playerName ? `'${playerName}' İsmini Değiştir` : 'İsmi Değiştir';
+
+    const visDescs: Record<string, string> = {
+      private: 'Sadece kod ile katılınır, listede gözükmez.',
+      public:  'Aktif odalar listesinde görünür.',
+      invite:  'Listede görünür, katılmak için host onayı gerekir.',
+    };
 
     const html = `
       <div class="mp-screen mp-lobby-screen">
@@ -838,7 +850,7 @@ export class ScreenManager {
         <div class="mp-lobby-inner">
           <div class="mp-lobby-top">
             <div class="mp-lobby-page-title">Çok Oyunculu</div>
-            <button class="mp-change-name-btn" id="btn-mp-change-name">İsmi Değiştir</button>
+            <button class="mp-change-name-btn" id="btn-mp-change-name">${nameLabel}</button>
           </div>
 
           <div class="mp-lobby-actions">
@@ -849,11 +861,12 @@ export class ScreenManager {
                 <button class="mp-vis-btn" data-vis="public">Açık</button>
                 <button class="mp-vis-btn" data-vis="invite">Davetli</button>
               </div>
+              <div class="mp-vis-desc" id="mp-vis-desc">${visDescs['private']}</div>
               <button class="btn btn-mode-multi mp-panel-btn" id="btn-create-room">OLUŞTUR</button>
             </div>
 
             <div class="mp-action-panel">
-              <div class="mp-panel-label">Koda Katıl</div>
+              <div class="mp-panel-label">KOD İLE KATIL</div>
               <input class="mp-code-input" id="mp-code-input" type="text"
                 placeholder="X X X X" maxlength="4" autocomplete="off" inputmode="text" />
               <button class="btn btn-mode-thinking mp-panel-btn" id="btn-join-room">KATIL</button>
@@ -878,6 +891,8 @@ export class ScreenManager {
         this.overlay.querySelectorAll('.mp-vis-btn').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         this.selectedVisibility = (btn as HTMLElement).dataset.vis as RoomVisibility;
+        const descEl = this.overlay.querySelector('#mp-vis-desc') as HTMLElement;
+        if (descEl) descEl.textContent = visDescs[this.selectedVisibility] ?? '';
       });
     });
 

@@ -248,6 +248,30 @@ export class RoomManager {
     } catch { /* yoksay */ }
   }
 
+  async updatePublicRoomCount(count: number): Promise<void> {
+    if (!this.roomCode) return;
+    try {
+      await set(ref(this.db, `rooms/_index/${this.roomCode}/playerCount`), count);
+    } catch { /* yoksay */ }
+  }
+
+  async republishRoom(
+    hostName: string,
+    playerCount: number,
+    visibility: 'public' | 'invite'
+  ): Promise<void> {
+    if (!this.roomCode) return;
+    try {
+      await set(ref(this.db, `rooms/_index/${this.roomCode}`), {
+        hostName,
+        playerCount,
+        visibility,
+        createdAt: Date.now(),
+      });
+      onDisconnect(ref(this.db, `rooms/_index/${this.roomCode}`)).remove();
+    } catch (e) { console.warn('republishRoom hatası:', e); }
+  }
+
   // --- Oyun başlatma (atomik) ---
 
   async startGame(levelId: number): Promise<void> {

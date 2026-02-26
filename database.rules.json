@@ -7,6 +7,10 @@
     "publicRooms": {
       ".read": true,
       ".write": true
+    },
+    "presence": {
+      ".read": true,
+      ".write": true
     }
   }
 }

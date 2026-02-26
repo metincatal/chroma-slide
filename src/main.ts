@@ -2,8 +2,9 @@ import './style.css';
 import { Game } from './game/Game';
 import { MultiplayerGame } from './multiplayer/MultiplayerGame';
 import { db } from './multiplayer/FirebaseConfig';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, set, onDisconnect } from 'firebase/database';
 import { PublicRoomEntry, RoomVisibility } from './multiplayer/RoomManager';
+import { getOrCreatePlayerId } from './utils/storage';
 
 const canvas  = document.getElementById('game-canvas') as HTMLCanvasElement;
 const overlay = document.getElementById('ui-overlay') as HTMLDivElement;
@@ -16,6 +17,26 @@ if (!canvas || !overlay) {
 const globalNotifLayer = document.createElement('div');
 globalNotifLayer.id = 'global-notif-layer';
 document.body.appendChild(globalNotifLayer);
+
+// -------------------------------------------------------
+// Presence (aktif oyuncu sayısı)
+// -------------------------------------------------------
+
+const myPresenceId = getOrCreatePlayerId();
+const presenceRef  = ref(db, `presence/${myPresenceId}`);
+set(presenceRef, true);
+onDisconnect(presenceRef).remove();
+
+function updateOnlineCountUI(count: number) {
+  const el = overlay.querySelector('#online-count-text');
+  if (el) el.textContent = count === 1 ? '1 kişi aktif' : `${count} kişi aktif`;
+}
+
+onValue(ref(db, 'presence'), (snap) => {
+  const data = snap.val();
+  const count = data ? Object.keys(data).length : 0;
+  updateOnlineCountUI(count);
+});
 
 let currentGame:   Game | null            = null;
 let currentMpGame: MultiplayerGame | null = null;

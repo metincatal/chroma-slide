@@ -6,21 +6,11 @@ import { ScreenManager } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
 import { Direction, PAINT_GRADIENTS } from '../utils/constants';
 import { getThemeById, ThemeConfig } from '../utils/themes';
-import { getSelectedTheme, getMpName, saveMpName, getMpColorIndex, saveMpColorIndex } from '../utils/storage';
+import { getSelectedTheme, getMpName, saveMpName, getMpColorIndex, saveMpColorIndex, getOrCreatePlayerId } from '../utils/storage';
 import { playSlide, playBump, resumeAudio } from '../utils/sound';
 import { db } from './FirebaseConfig';
 import { RoomManager, PlayerData, RoomInfo, RoomVisibility, PublicRoomEntry, JoinRequest, RematchData } from './RoomManager';
 import { RemotePlayer } from './RemotePlayer';
-
-// localStorage'da kalıcı oyuncu kimliği
-function getOrCreatePlayerId(): string {
-  let id = localStorage.getItem('chroma_mp_id');
-  if (!id) {
-    id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    localStorage.setItem('chroma_mp_id', id);
-  }
-  return id;
-}
 
 export class MultiplayerGame {
   // Temel altyapı
@@ -340,7 +330,7 @@ export class MultiplayerGame {
   private showLobby() {
     if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
     this.knownRoomCodes = new Set();
-    this.screenManager.show('mp-lobby');
+    this.screenManager.show('mp-lobby', { playerName: this.myName });
 
     // İlk çağrı: mevcut odaları "bilinenler" olarak işaretle — bildirim gösterme
     let firstFetch = true;
@@ -416,6 +406,12 @@ export class MultiplayerGame {
       this.screenManager.updateMpWaiting(players, this.roomCode, this.isHost, this.selectedLevel);
 
       const connected = Object.values(players).filter((p) => p.connected);
+
+      // Host: aktif oda listesinde oyuncu sayısını güncelle
+      if (this.isHost && this.roomVisibility !== 'private') {
+        this.roomManager.updatePublicRoomCount(connected.length).catch(() => {});
+      }
+
       if (Object.keys(players).length > 0 && connected.length === 0) {
         this.roomManager.leaveRoom();
         this.cleanup();
@@ -465,9 +461,21 @@ export class MultiplayerGame {
       if (prevHostId && prevHostId !== info.hostId && info.hostId === this.myPlayerId) {
         this.isHost = true;
         const connectedCount = Object.values(this.players).filter((p) => p.connected).length;
-        const msg = connectedCount >= 2 ? 'Artık Host Sensin! Oyunu başlatabilirsin.' : 'Artık Host Sensin';
-        this.screenManager.showMpInfo(msg);
-        this.screenManager.updateMpWaiting(this.players, this.roomCode, true, this.selectedLevel);
+
+        if (this.roomState === 'finished' && connectedCount <= 1) {
+          // Oyun bitmişti, tek kişi kaldım → bekleme lobisine yönlendir
+          this.onRematchReset();
+          if (this.roomVisibility !== 'private') {
+            this.roomManager.republishRoom(
+              this.myName, connectedCount, this.roomVisibility as 'public' | 'invite'
+            ).catch(() => {});
+          }
+          this.screenManager.showMpInfo('Artık Host Sensin! Yeni oyuncu bekleniyor...');
+        } else {
+          const msg = connectedCount >= 2 ? 'Artık Host Sensin! Oyunu başlatabilirsin.' : 'Artık Host Sensin';
+          this.screenManager.showMpInfo(msg);
+          this.screenManager.updateMpWaiting(this.players, this.roomCode, true, this.selectedLevel);
+        }
       }
 
       if (info.state === 'countdown' && this.gameStartAt === 0) {
@@ -681,9 +689,19 @@ export class MultiplayerGame {
       if (connected.length <= 1 && !this.gameEnding) {
         this.onGameFinished();
       }
-      // Sonuç ekranındayken birisi ayrılırsa "Tekrar Oyna" butonunu gizle
-      if (this.roomState === 'finished' && connected.length <= 1) {
-        this.screenManager.hideRematchButton(newlyDisconnected[0]);
+      // Sonuç ekranındayken birisi ayrıldıysa
+      if (this.roomState === 'finished') {
+        if (connected.length === 0) {
+          // Herkes ayrıldı — butonu kaldır
+          this.screenManager.hideRematchButton();
+        } else if (connected.length === 1) {
+          // Tek kişi kaldı — sadece bildirim ver, onRoomChange host transferi yönetecek
+          if (newlyDisconnected.length > 0) {
+            this.screenManager.showMpError(`${newlyDisconnected[0]} odayı terk etti.`);
+          }
+          // Tekrar Oyna butonunu SAKLAMIYORUZ — yeni host onRoomChange'de yönlendirilecek
+        }
+        // connected.length >= 2 ise buton saklanmaz, oyun devam edebilir
       }
       for (const [pid, rp] of this.remotePlayers) {
         rp.connected = players[pid]?.connected ?? false;
