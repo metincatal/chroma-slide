@@ -446,6 +446,29 @@ export class ScreenManager {
       title: 'İki Oyun Modu',
       text: 'Beyin egzersizi için <strong>Taktik</strong>, stressiz oynamak için <strong>Akış</strong> modunu seç.',
     },
+    {
+      visual: `
+        <div class="ob-multi-demo">
+          <div class="ob-multi-balls">
+            <div class="ob-multi-ball" style="background:radial-gradient(circle at 35% 35%,#fff,#f4a8a8)"></div>
+            <div class="ob-multi-ball" style="background:radial-gradient(circle at 35% 35%,#fff,#88bce8)"></div>
+            <div class="ob-multi-ball" style="background:radial-gradient(circle at 35% 35%,#fff,#80cc9c)"></div>
+            <div class="ob-multi-ball" style="background:radial-gradient(circle at 35% 35%,#fff,#d4a8f0)"></div>
+          </div>
+          <div class="ob-multi-vs">VS</div>
+          <div class="ob-multi-board">
+            <div class="ob-mini-cell" style="background:linear-gradient(135deg,#f4c4c4,#f4a8a8)"></div>
+            <div class="ob-mini-cell" style="background:linear-gradient(135deg,#b4d4f0,#88bce8)"></div>
+            <div class="ob-mini-cell" style="background:linear-gradient(135deg,#f4c4c4,#f4a8a8)"></div>
+            <div class="ob-mini-cell" style="background:linear-gradient(135deg,#b0e4c4,#80cc9c)"></div>
+            <div class="ob-mini-cell" style="background:linear-gradient(135deg,#d4a8f0,#c088e8)"></div>
+            <div class="ob-mini-cell" style="background:linear-gradient(135deg,#b0e4c4,#80cc9c)"></div>
+          </div>
+        </div>
+      `,
+      title: 'Çok Oyunculu',
+      text: '<strong>2–4 oyuncu</strong> aynı labirente giriyor! Kim daha çok karo boyarsa kazanır. Oda kodu paylaşarak arkadaşlarınla oyna.',
+    },
   ];
 
   private showOnboarding() {

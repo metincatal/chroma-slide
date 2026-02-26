@@ -1588,3 +1588,56 @@ html, body {
   line-height: 1.4;
 }
 
+/* Slide 4 - çok oyunculu */
+.ob-multi-demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.ob-multi-balls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+.ob-multi-ball {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+  animation: ob-bounce 1.8s ease-in-out infinite;
+}
+
+.ob-multi-ball:nth-child(2) { animation-delay: 0.2s; }
+.ob-multi-ball:nth-child(3) { animation-delay: 0.4s; }
+.ob-multi-ball:nth-child(4) { animation-delay: 0.6s; }
+
+@keyframes ob-bounce {
+  0%,100% { transform: translateY(0);    }
+  50%      { transform: translateY(-8px); }
+}
+
+.ob-multi-vs {
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(106, 96, 88, 0.35);
+  letter-spacing: 3px;
+}
+
+.ob-multi-board {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  gap: 5px;
+}
+
+.ob-mini-cell {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
