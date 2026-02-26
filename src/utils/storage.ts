@@ -109,6 +109,24 @@ export function getSelectedTheme(): string {
   }
 }
 
+// --- Onboarding ---
+
+const ONBOARDING_KEY = 'chromaslide_onboarding_seen';
+
+export function hasSeenOnboarding(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markOnboardingSeen(): void {
+  try {
+    localStorage.setItem(ONBOARDING_KEY, '1');
+  } catch {}
+}
+
 // --- Çok oyunculu isim/renk kalıcılığı ---
 
 const MP_NAME_KEY         = 'chroma_mp_name';

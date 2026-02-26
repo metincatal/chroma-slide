@@ -1380,3 +1380,211 @@ html, body {
   white-space: nowrap;
 }
 
+/* -------------------------------------------------------
+   ONBOARDING
+   ------------------------------------------------------- */
+
+.ob-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  padding: 16px 24px 32px;
+  animation: fadeIn 0.3s ease;
+}
+
+.ob-skip-btn {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(106, 96, 88, 0.45);
+  cursor: pointer;
+  padding: 8px 4px;
+  letter-spacing: 0.5px;
+}
+
+.ob-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  justify-content: center;
+  max-width: 340px;
+  width: 100%;
+  padding: 0 8px;
+}
+
+.ob-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.ob-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #6a6058;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+.ob-text {
+  font-size: 15px;
+  color: rgba(106, 96, 88, 0.7);
+  text-align: center;
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+.ob-text strong {
+  color: #6a6058;
+  font-weight: 700;
+}
+
+.ob-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 260px;
+}
+
+.ob-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.ob-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(106, 96, 88, 0.18);
+  transition: background 0.25s, transform 0.25s;
+}
+
+.ob-dot-active {
+  background: #c4b498;
+  transform: scale(1.25);
+}
+
+.ob-next-btn {
+  width: 100%;
+  padding: 14px 0;
+}
+
+/* Slide 1 - mini grid */
+.ob-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 6px;
+  padding: 12px;
+  background: rgba(196, 180, 152, 0.12);
+  border-radius: 16px;
+}
+
+.ob-cell {
+  border-radius: 10px;
+  background: rgba(196, 180, 152, 0.18);
+}
+
+.ob-painted {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.ob-ball {
+  background: radial-gradient(circle at 35% 35%, #fff, #c4b498) !important;
+  box-shadow: 0 3px 12px rgba(196, 180, 152, 0.5);
+  border-radius: 50% !important;
+}
+
+/* Slide 2 - swipe arrows */
+.ob-swipe-demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.ob-swipe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ob-swipe-arrow {
+  color: rgba(106, 96, 88, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+}
+
+.ob-arrow-up    { animation: ob-pulse-up    1.6s ease-in-out infinite; }
+.ob-arrow-down  { animation: ob-pulse-down  1.6s ease-in-out infinite 0.4s; }
+.ob-arrow-left  { animation: ob-pulse-left  1.6s ease-in-out infinite 0.8s; }
+.ob-arrow-right { animation: ob-pulse-right 1.6s ease-in-out infinite 1.2s; }
+
+@keyframes ob-pulse-up    { 0%,100%{opacity:.35;transform:translateY(0)}  50%{opacity:1;transform:translateY(-6px)} }
+@keyframes ob-pulse-down  { 0%,100%{opacity:.35;transform:translateY(0)}  50%{opacity:1;transform:translateY(6px)}  }
+@keyframes ob-pulse-left  { 0%,100%{opacity:.35;transform:translateX(0)}  50%{opacity:1;transform:translateX(-6px)}}
+@keyframes ob-pulse-right { 0%,100%{opacity:.35;transform:translateX(0)}  50%{opacity:1;transform:translateX(6px)} }
+
+.ob-swipe-ball {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff, #c4b498);
+  box-shadow: 0 4px 16px rgba(196, 180, 152, 0.5);
+}
+
+/* Slide 3 - oyun modları */
+.ob-modes {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  justify-content: center;
+}
+
+.ob-mode-card {
+  flex: 1;
+  max-width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border-radius: 16px;
+  color: #fff;
+  text-align: center;
+}
+
+.ob-mode-thinking {
+  background: linear-gradient(135deg, #7c9eb8, #5a8aad);
+  box-shadow: 0 4px 16px rgba(90, 138, 173, 0.3);
+}
+
+.ob-mode-relaxing {
+  background: linear-gradient(135deg, #8dbd8d, #6aaa6a);
+  box-shadow: 0 4px 16px rgba(106, 170, 106, 0.3);
+}
+
+.ob-mode-name {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.ob-mode-desc {
+  font-size: 11px;
+  opacity: 0.85;
+  line-height: 1.4;
+}
+

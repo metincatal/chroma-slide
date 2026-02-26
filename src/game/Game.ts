@@ -6,7 +6,7 @@ import { ScreenManager, Screen } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
 import { getUndoCount } from '../levels/procedural';
 import { Direction, DIRECTIONS, GameMode, LEVEL_COLORS, PAINT_GRADIENTS } from '../utils/constants';
-import { saveProgress, saveTheme, getSelectedTheme } from '../utils/storage';
+import { saveProgress, saveTheme, getSelectedTheme, hasSeenOnboarding } from '../utils/storage';
 import { getThemeById, ThemeConfig } from '../utils/themes';
 import { playSlide, playComplete, playBump, resumeAudio } from '../utils/sound';
 
@@ -51,6 +51,7 @@ export class Game {
     this.input.setEnabled(false);
 
     this.screenManager = new ScreenManager(overlay, getTotalLevels(), {
+      onOnboardingDone: () => this.showScreen('menu'),
       onSelectMode: (mode) => {
         this.currentMode = mode;
         this.showScreen('levels', { mode });
@@ -86,7 +87,8 @@ export class Game {
   }
 
   start() {
-    this.showScreen('menu');
+    const firstScreen: Screen = hasSeenOnboarding() ? 'menu' : 'onboarding';
+    this.showScreen(firstScreen);
     this.lastTime = performance.now();
     this.loop(this.lastTime);
   }

@@ -1,4 +1,4 @@
-import { getAllStars } from '../utils/storage';
+import { getAllStars, markOnboardingSeen } from '../utils/storage';
 import { GameMode, LEVEL_COLORS, PAINT_GRADIENTS } from '../utils/constants';
 import { THEMES, ThemeConfig } from '../utils/themes';
 import { getSelectedTheme } from '../utils/storage';
@@ -7,6 +7,7 @@ import { playClick, resumeAudio } from '../utils/sound';
 import { PlayerData, RoomVisibility, PublicRoomEntry, JoinRequest } from '../multiplayer/RoomManager';
 
 export type Screen =
+  | 'onboarding'
   | 'menu'
   | 'levels'
   | 'themes'
@@ -18,6 +19,7 @@ export type Screen =
   | 'mp-results';
 
 interface ScreenCallbacks {
+  onOnboardingDone: () => void;
   onSelectMode: (mode: GameMode) => void;
   onSelectLevel: (levelId: number) => void;
   onBack: () => void;
@@ -77,6 +79,7 @@ export class ScreenManager {
     this.overlay.innerHTML = '';
 
     switch (screen) {
+      case 'onboarding': this.showOnboarding(); break;
       case 'menu':       this.showMenu();   break;
       case 'levels':     this.activeTierIndex = 0; this.showLevelSelect(); break;
       case 'themes':     this.showThemeSelect(); break;
@@ -377,6 +380,120 @@ export class ScreenManager {
   // Onay bekleme dialog'unu kaldır
   hideApprovalWaiting() {
     this.overlay.querySelector('.mp-approval-dialog')?.remove();
+  }
+
+  // -------------------------------------------------------
+  // ONBOARDING
+  // -------------------------------------------------------
+
+  private onboardingStep = 0;
+  private readonly ONBOARDING_STEPS = [
+    {
+      visual: `
+        <div class="ob-grid">
+          <div class="ob-cell ob-painted" style="background:linear-gradient(135deg,#f4c4c4,#f4a8a8)"></div>
+          <div class="ob-cell ob-painted" style="background:linear-gradient(135deg,#f4dca8,#f4c480)"></div>
+          <div class="ob-cell"></div>
+          <div class="ob-cell ob-ball"></div>
+          <div class="ob-cell"></div>
+          <div class="ob-cell ob-painted" style="background:linear-gradient(135deg,#b4d4f0,#88bce8)"></div>
+          <div class="ob-cell ob-painted" style="background:linear-gradient(135deg,#b0e4c4,#80cc9c)"></div>
+          <div class="ob-cell"></div>
+          <div class="ob-cell ob-painted" style="background:linear-gradient(135deg,#d4b0e4,#b888d8)"></div>
+        </div>
+      `,
+      title: 'ChromaSlide\'a Hoş Geldin!',
+      text: 'Topu kaydırarak labirentin <strong>tüm karolarını</strong> boya. Ne kadar az hamlede tamamlarsan o kadar çok yıldız!',
+    },
+    {
+      visual: `
+        <div class="ob-swipe-demo">
+          <div class="ob-swipe-arrow ob-arrow-up">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+          </div>
+          <div class="ob-swipe-row">
+            <div class="ob-swipe-arrow ob-arrow-left">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 5l-7 7 7 7"/></svg>
+            </div>
+            <div class="ob-swipe-ball"></div>
+            <div class="ob-swipe-arrow ob-arrow-right">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+            </div>
+          </div>
+          <div class="ob-swipe-arrow ob-arrow-down">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
+          </div>
+        </div>
+      `,
+      title: 'Nasıl Oynanır?',
+      text: '<strong>Kaydır</strong> ya da <strong>ok tuşlarını</strong> kullan. Top bir engele çarpana kadar kayar ve geçtiği karoları boyar.',
+    },
+    {
+      visual: `
+        <div class="ob-modes">
+          <div class="ob-mode-card ob-mode-thinking">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>
+            <div class="ob-mode-name">Taktik Mod</div>
+            <div class="ob-mode-desc">Sınırlı geri alma. Hamlelerin önemli!</div>
+          </div>
+          <div class="ob-mode-card ob-mode-relaxing">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8c.7-1 1-2.2 1-3.5C18 2.5 16.6 1 15 1c-1.3 0-2.4.8-2.8 2C11.8 1.8 10.7 1 9.5 1 7.6 1 6 2.5 6 4.5 6 5.8 6.3 7 7 8"/><path d="M3 14c0 4.4 3.6 8 8 8h2c4.4 0 8-3.6 8-8v-1c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v1z"/></svg>
+            <div class="ob-mode-name">Akış Modu</div>
+            <div class="ob-mode-desc">Sınırsız deneme. Rahatça keşfet!</div>
+          </div>
+        </div>
+      `,
+      title: 'İki Oyun Modu',
+      text: 'Beyin egzersizi için <strong>Taktik</strong>, stressiz oynamak için <strong>Akış</strong> modunu seç.',
+    },
+  ];
+
+  private showOnboarding() {
+    this.onboardingStep = 0;
+    this.renderOnboardingStep();
+  }
+
+  private renderOnboardingStep() {
+    const step     = this.ONBOARDING_STEPS[this.onboardingStep];
+    const total    = this.ONBOARDING_STEPS.length;
+    const isLast   = this.onboardingStep === total - 1;
+    const dotsHtml = Array.from({ length: total }, (_, i) =>
+      `<div class="ob-dot${i === this.onboardingStep ? ' ob-dot-active' : ''}"></div>`
+    ).join('');
+
+    const html = `
+      <div class="ob-screen">
+        <button class="ob-skip-btn" id="ob-skip">Atla</button>
+        <div class="ob-content">
+          <div class="ob-visual">${step.visual}</div>
+          <div class="ob-title">${step.title}</div>
+          <div class="ob-text">${step.text}</div>
+        </div>
+        <div class="ob-footer">
+          <div class="ob-dots">${dotsHtml}</div>
+          <button class="btn btn-mode-thinking ob-next-btn" id="ob-next">
+            ${isLast ? 'BAŞLA' : 'SONRAKI'}
+          </button>
+        </div>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    this.overlay.querySelector('#ob-skip')!.addEventListener('click', () => {
+      playClick();
+      markOnboardingSeen();
+      this.callbacks.onOnboardingDone();
+    });
+    this.overlay.querySelector('#ob-next')!.addEventListener('click', () => {
+      playClick();
+      if (isLast) {
+        markOnboardingSeen();
+        this.callbacks.onOnboardingDone();
+      } else {
+        this.onboardingStep++;
+        this.renderOnboardingStep();
+      }
+    });
   }
 
   // -------------------------------------------------------

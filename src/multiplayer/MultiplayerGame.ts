@@ -92,6 +92,7 @@ export class MultiplayerGame {
       getTotalLevels(),
       {
         // Tek oyunculu callback'ler (mp ekranlarında kullanılmaz)
+        onOnboardingDone: () => {},
         onSelectMode:  () => {},
         onSelectLevel: () => {},
         onBack:        () => {},
