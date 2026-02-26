@@ -833,8 +833,6 @@ export class ScreenManager {
   private showMpLobby(playerName: string = '') {
     this.selectedVisibility = 'private';
 
-    const nameLabel = playerName ? `'${playerName}' İsmini Değiştir` : 'İsmi Değiştir';
-
     const visDescs: Record<string, string> = {
       private: 'Sadece kod ile katılınır, listede gözükmez.',
       public:  'Aktif odalar listesinde görünür.',
@@ -843,14 +841,16 @@ export class ScreenManager {
 
     const html = `
       <div class="mp-screen mp-lobby-screen">
-        <button class="back-btn" id="btn-mp-back">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-
         <div class="mp-lobby-inner">
-          <div class="mp-lobby-top">
+          <div class="mp-lobby-header">
+            <button class="mp-lobby-back-btn" id="btn-mp-back">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
             <div class="mp-lobby-page-title">Çok Oyunculu</div>
-            <button class="mp-change-name-btn" id="btn-mp-change-name">${nameLabel}</button>
+            <button class="mp-player-name-tag" id="btn-mp-change-name">
+              <svg class="mp-name-pencil" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <span class="mp-player-name-text">${playerName || '?'}</span>
+            </button>
           </div>
 
           <div class="mp-lobby-actions">
@@ -896,7 +896,7 @@ export class ScreenManager {
       });
     });
 
-    this.overlay.querySelector('#btn-mp-change-name')!.addEventListener('click', () => {
+    this.overlay.querySelector('#btn-mp-change-name')?.addEventListener('click', () => {
       playClick(); this.callbacks.onMpChangeName?.();
     });
     this.overlay.querySelector('#btn-create-room')!.addEventListener('click', () => {

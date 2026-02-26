@@ -34,12 +34,13 @@ function updateOnlineCountUI(count: number) {
 
 onValue(ref(db, 'presence'), (snap) => {
   const data = snap.val();
-  const count = data ? Object.keys(data).length : 0;
-  updateOnlineCountUI(count);
+  latestOnlineCount = data ? Object.keys(data).length : 0;
+  updateOnlineCountUI(latestOnlineCount);
 });
 
 let currentGame:   Game | null            = null;
 let currentMpGame: MultiplayerGame | null = null;
+let latestOnlineCount = 0;
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
@@ -142,6 +143,8 @@ function startSinglePlayer() {
   resize();
   currentGame.start();
   startRoomNotifier();
+  // Menü render olduktan sonra online sayısını güncelle
+  setTimeout(() => updateOnlineCountUI(latestOnlineCount), 50);
 }
 
 function startMultiplayer(pendingRoom?: { code: string; visibility: RoomVisibility }) {

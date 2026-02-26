@@ -56,6 +56,7 @@ export class MultiplayerGame {
   // Rematch
   private rematchRequested = false;
   private rematchResolved  = false;
+  private pendingInfoMessage = '';
 
   // İstek onayı bekleme
   private approvalUnsub: (() => void) | null = null;
@@ -245,6 +246,16 @@ export class MultiplayerGame {
         },
 
         onMpBackToMenu: async () => {
+          if (this.isHost) {
+            const connectedOthers = Object.entries(this.players)
+              .filter(([pid, p]) => pid !== this.myPlayerId && p.connected);
+            if (connectedOthers.length === 0) {
+              try { await this.roomManager.removePublicRoom(); } catch { /* yoksay */ }
+            } else if (this.roomVisibility !== 'invite' && this.roomVisibility !== 'private') {
+              const sorted = connectedOthers.sort(([a], [b]) => a.localeCompare(b));
+              try { await this.roomManager.transferHost(sorted[0][0]); } catch { /* yoksay */ }
+            }
+          }
           await this.roomManager.leaveRoom();
           this.cleanup();
           this.onBackToMenu();
@@ -409,7 +420,12 @@ export class MultiplayerGame {
 
       // Host: aktif oda listesinde oyuncu sayısını güncelle
       if (this.isHost && this.roomVisibility !== 'private') {
-        this.roomManager.updatePublicRoomCount(connected.length).catch(() => {});
+        if (connected.length >= 1) {
+          this.roomManager.updatePublicRoomCount(connected.length).catch(() => {});
+        } else {
+          // Odada kimse kalmadı — listeden kaldır
+          this.roomManager.removePublicRoom().catch(() => {});
+        }
       }
 
       if (Object.keys(players).length > 0 && connected.length === 0) {
@@ -462,15 +478,8 @@ export class MultiplayerGame {
         this.isHost = true;
         const connectedCount = Object.values(this.players).filter((p) => p.connected).length;
 
-        if (this.roomState === 'finished' && connectedCount <= 1) {
-          // Oyun bitmişti, tek kişi kaldım → bekleme lobisine yönlendir
-          this.onRematchReset();
-          if (this.roomVisibility !== 'private') {
-            this.roomManager.republishRoom(
-              this.myName, connectedCount, this.roomVisibility as 'public' | 'invite'
-            ).catch(() => {});
-          }
-          this.screenManager.showMpInfo('Artık Host Sensin! Yeni oyuncu bekleniyor...');
+        if (this.roomState === 'finished') {
+          // launchGame'in onPlayersChange timeout'u yönlendirmeyi yönetecek
         } else {
           const msg = connectedCount >= 2 ? 'Artık Host Sensin! Oyunu başlatabilirsin.' : 'Artık Host Sensin';
           this.screenManager.showMpInfo(msg);
@@ -607,6 +616,13 @@ export class MultiplayerGame {
 
     // Bekleme odasını yeniden aç
     this.enterWaiting();
+
+    // Host-redirect senaryosunda bekleyen mesajı göster
+    if (this.pendingInfoMessage) {
+      const msg = this.pendingInfoMessage;
+      this.pendingInfoMessage = '';
+      this.screenManager.showMpInfo(msg);
+    }
   }
 
   // -------------------------------------------------------
@@ -692,16 +708,29 @@ export class MultiplayerGame {
       // Sonuç ekranındayken birisi ayrıldıysa
       if (this.roomState === 'finished') {
         if (connected.length === 0) {
-          // Herkes ayrıldı — butonu kaldır
+          // Herkes ayrıldı
           this.screenManager.hideRematchButton();
         } else if (connected.length === 1) {
-          // Tek kişi kaldı — sadece bildirim ver, onRoomChange host transferi yönetecek
+          // Tek kişi kaldı
           if (newlyDisconnected.length > 0) {
             this.screenManager.showMpError(`${newlyDisconnected[0]} odayı terk etti.`);
           }
-          // Tekrar Oyna butonunu SAKLAMIYORUZ — yeni host onRoomChange'de yönlendirilecek
+          // 1200ms bekle: onRoomChange host transferini işlesin, ardından yönlendir
+          setTimeout(() => {
+            const stillConnected = Object.values(this.players).filter((p) => p.connected).length;
+            if (this.isHost && this.roomState === 'finished' && stillConnected <= 1) {
+              this.pendingInfoMessage = 'Artık Host Sensin! Yeni oyuncu bekleniyor...';
+              this.roomManager.resetForRematch().then(() => {
+                if (this.roomVisibility !== 'private') {
+                  this.roomManager.republishRoom(
+                    this.myName, 1, this.roomVisibility as 'public' | 'invite'
+                  ).catch(() => {});
+                }
+              }).catch(() => {});
+            }
+          }, 1200);
         }
-        // connected.length >= 2 ise buton saklanmaz, oyun devam edebilir
+        // connected.length >= 2 ise buton saklanmaz
       }
       for (const [pid, rp] of this.remotePlayers) {
         rp.connected = players[pid]?.connected ?? false;

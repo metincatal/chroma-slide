@@ -591,25 +591,94 @@ html, body {
 .mp-lobby-inner {
   width: 100%;
   max-width: 420px;
-  padding: 72px 20px 32px;
+  padding: 0 20px 32px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   flex: 1;
 }
 
-.mp-lobby-top {
+/* Sticky başlık satırı — kaydırırken üstte kalır */
+.mp-lobby-header {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(240, 236, 230, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 20px 0 12px;
+  margin: 0 -20px;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.mp-lobby-back-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
+  justify-content: center;
+  color: #6a6058;
+  transition: background 0.15s;
+  flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+.mp-lobby-back-btn:hover,
+.mp-lobby-back-btn:active {
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .mp-lobby-page-title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
   color: #6a6058;
   letter-spacing: 0.5px;
+  text-align: center;
+}
+
+/* Oyuncu isim etiketi (küçük, sağ köşe) */
+.mp-player-name-tag {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 4px;
+  border-radius: 8px;
+  color: rgba(106, 96, 88, 0.65);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+  max-width: 80px;
+  overflow: hidden;
+}
+
+.mp-player-name-tag:hover,
+.mp-player-name-tag:active {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(106, 96, 88, 1);
+}
+
+.mp-player-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-name-pencil {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .mp-lobby-actions {
