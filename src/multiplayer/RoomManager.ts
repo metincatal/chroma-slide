@@ -228,9 +228,18 @@ export class RoomManager {
       ref(this.db, 'rooms/_index'),
       (snap) => {
         const raw = (snap.val() as Record<string, Omit<PublicRoomEntry, 'code'>>) || {};
-        callback(
-          Object.entries(raw).map(([code, entry]) => ({ ...entry, code }))
-        );
+        const valid: PublicRoomEntry[] = [];
+
+        for (const [code, entry] of Object.entries(raw)) {
+          // Geçersiz (zombie) kayıtları otomatik temizle
+          if (!entry?.hostName || !entry?.playerCount || entry.playerCount <= 0) {
+            set(ref(this.db, `rooms/_index/${code}`), null).catch(() => {});
+            continue;
+          }
+          valid.push({ ...entry, code });
+        }
+
+        callback(valid);
       },
       (err) => {
         console.error('rooms/_index okunamadı:', err.message);

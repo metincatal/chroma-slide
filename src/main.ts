@@ -22,8 +22,9 @@ document.body.appendChild(globalNotifLayer);
 // Presence (aktif oyuncu sayısı)
 // -------------------------------------------------------
 
+// presence → rooms/_presence altında (mevcut rooms izni kapsamında çalışır)
 const myPresenceId = getOrCreatePlayerId();
-const presenceRef  = ref(db, `presence/${myPresenceId}`);
+const presenceRef  = ref(db, `rooms/_presence/${myPresenceId}`);
 set(presenceRef, true);
 onDisconnect(presenceRef).remove();
 
@@ -32,7 +33,7 @@ function updateOnlineCountUI(count: number) {
   if (el) el.textContent = count === 1 ? '1 kişi aktif' : `${count} kişi aktif`;
 }
 
-onValue(ref(db, 'presence'), (snap) => {
+onValue(ref(db, 'rooms/_presence'), (snap) => {
   const data = snap.val();
   latestOnlineCount = data ? Object.keys(data).length : 0;
   updateOnlineCountUI(latestOnlineCount);
@@ -67,7 +68,10 @@ function startRoomNotifier() {
 
   roomNotifUnsub = onValue(ref(db, 'rooms/_index'), (snap) => {
     const raw = (snap.val() as Record<string, Omit<PublicRoomEntry, 'code'>>) || {};
-    const rooms: PublicRoomEntry[] = Object.entries(raw).map(([code, r]) => ({ ...r, code }));
+    // Geçersiz kayıtları filtrele (zombie odalar)
+    const rooms: PublicRoomEntry[] = Object.entries(raw)
+      .filter(([, r]) => r?.hostName && r?.playerCount && r.playerCount > 0)
+      .map(([code, r]) => ({ ...r, code }));
 
     if (notifFirstFetch) {
       rooms.forEach((r) => notifKnownRooms.add(r.code));
