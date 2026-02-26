@@ -211,6 +211,51 @@ export class ScreenManager {
     setTimeout(() => toast.remove(), 3000);
   }
 
+  // Yeni oda bildirimi (lobide, üstten kayar)
+  showRoomNotification(
+    hostName: string,
+    visibility: 'public' | 'invite',
+    onAction: () => void
+  ) {
+    // Kuyruğa ekle; aynı anda 2'den fazla gösterme
+    const existing = this.overlay.querySelectorAll('.mp-room-notif');
+    if (existing.length >= 2) return;
+
+    const btnLabel = visibility === 'invite' ? 'İstek Gönder' : 'Katıl';
+    const icon     = visibility === 'invite' ? '🔒' : '🌐';
+
+    const notif = document.createElement('div');
+    notif.className = 'mp-room-notif';
+    notif.innerHTML = `
+      <div class="mp-room-notif-info">
+        <span class="mp-room-notif-icon">${icon}</span>
+        <span class="mp-room-notif-text"><strong>${hostName}</strong> oyun açtı</span>
+      </div>
+      <button class="mp-room-notif-btn">${btnLabel}</button>
+    `;
+    this.overlay.appendChild(notif);
+
+    // Ufak gecikme ile "giriş" animasyonu
+    requestAnimationFrame(() => notif.classList.add('mp-room-notif-show'));
+
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      notif.classList.remove('mp-room-notif-show');
+      notif.classList.add('mp-room-notif-hide');
+      setTimeout(() => notif.remove(), 350);
+    };
+
+    notif.querySelector('.mp-room-notif-btn')!.addEventListener('click', () => {
+      playClick();
+      dismiss();
+      onAction();
+    });
+
+    setTimeout(dismiss, 5000);
+  }
+
   // Aktif odalar listesini güncelle (lobby'de gösterilir)
   updatePublicRooms(rooms: PublicRoomEntry[]) {
     const container = this.overlay.querySelector('#mp-rooms-list');

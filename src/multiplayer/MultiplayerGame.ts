@@ -70,6 +70,9 @@ export class MultiplayerGame {
   // İstek onayı bekleme
   private approvalUnsub: (() => void) | null = null;
 
+  // Lobide bilinen odalar (yeni oda tespiti için)
+  private knownRoomCodes: Set<string> = new Set();
+
   // Mevcut oda host kimliği (host transferi takibi için)
   private roomHostId = '';
 
@@ -132,57 +135,13 @@ export class MultiplayerGame {
         },
 
         // Listeden direkt katılım (açık veya özel-kod giriş)
-        onMpJoinFromList: async (code: string) => {
-          try {
-            await this.roomManager.joinRoom(code.toUpperCase(), this.myName, this.myColorIndex);
-            this.roomCode = code.toUpperCase();
-            this.isHost   = false;
-            this.enterWaiting();
-          } catch (e) {
-            this.screenManager.showMpError(`Odaya katılamadı: ${(e as Error).message}`);
-          }
-        },
+        onMpJoinFromList: (code: string) => this.joinPublicRoom(code),
 
-        // Kod ile katılım (eski onMpJoinRoom yerine)
-        onMpJoinRoom: async (code: string) => {
-          try {
-            await this.roomManager.joinRoom(code.toUpperCase(), this.myName, this.myColorIndex);
-            this.roomCode = code.toUpperCase();
-            this.isHost   = false;
-            this.enterWaiting();
-          } catch (e) {
-            this.screenManager.showMpError(`Odaya katılamadı: ${(e as Error).message}`);
-          }
-        },
+        // Kod ile katılım
+        onMpJoinRoom: (code: string) => this.joinPublicRoom(code),
 
         // İstekli odaya istek gönder
-        onMpSendJoinRequest: async (code: string) => {
-          const upperCode = code.toUpperCase();
-          // Önceki bekleyen onay varsa iptal et
-          if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
-          try {
-            await this.roomManager.sendJoinRequest(upperCode, this.myName, this.myColorIndex);
-            this.roomCode = upperCode;
-            this.isHost   = false;
-
-            // Onay bekleme dialog'unu göster
-            this.screenManager.showApprovalWaiting(upperCode, () => {
-              if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
-              this.roomCode = '';
-            });
-
-            // Host onayladığında bekleme odasına gir
-            this.approvalUnsub = this.roomManager.listenForApproval(upperCode, () => {
-              this.approvalUnsub = null;
-              this.screenManager.hideApprovalWaiting();
-              this.roomManager.setRoomCode(upperCode);
-              this.roomManager.setupOnDisconnect();
-              this.enterWaiting();
-            });
-          } catch (e) {
-            this.screenManager.showMpError(`İstek gönderilemedi: ${(e as Error).message}`);
-          }
-        },
+        onMpSendJoinRequest: (code: string) => this.sendInviteRequest(code),
 
         // Host: isteği onayla
         onMpApproveRequest: async (requesterId: string) => {
@@ -312,13 +271,92 @@ export class MultiplayerGame {
     }
   }
 
+  // -------------------------------------------------------
+  // Oda katılım yardımcıları
+  // -------------------------------------------------------
+
+  private async joinPublicRoom(code: string) {
+    try {
+      await this.roomManager.joinRoom(code.toUpperCase(), this.myName, this.myColorIndex);
+      this.roomCode = code.toUpperCase();
+      this.isHost   = false;
+      this.enterWaiting();
+    } catch (e) {
+      this.screenManager.showMpError(`Odaya katılamadı: ${(e as Error).message}`);
+    }
+  }
+
+  private async sendInviteRequest(code: string) {
+    const upperCode = code.toUpperCase();
+    if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
+    try {
+      await this.roomManager.sendJoinRequest(upperCode, this.myName, this.myColorIndex);
+      this.roomCode = upperCode;
+      this.isHost   = false;
+
+      this.screenManager.showApprovalWaiting(upperCode, () => {
+        if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
+        this.roomCode = '';
+      });
+
+      this.approvalUnsub = this.roomManager.listenForApproval(upperCode, () => {
+        this.approvalUnsub = null;
+        this.screenManager.hideApprovalWaiting();
+        this.roomManager.setRoomCode(upperCode);
+        this.roomManager.setupOnDisconnect();
+        this.enterWaiting();
+      });
+    } catch (e) {
+      this.screenManager.showMpError(`İstek gönderilemedi: ${(e as Error).message}`);
+    }
+  }
+
+  // -------------------------------------------------------
+  // Lobi
+  // -------------------------------------------------------
+
   // Lobiye geç ve aktif oda listesini dinlemeye başla
   private showLobby() {
     if (this.approvalUnsub) { this.approvalUnsub(); this.approvalUnsub = null; }
+    this.knownRoomCodes = new Set();
     this.screenManager.show('mp-lobby');
-    // Lobi ekranı DOM'da oluşturulduktan sonra listener'ı başlat
+
+    // İlk çağrı: mevcut odaları "bilinenler" olarak işaretle — bildirim gösterme
+    let firstFetch = true;
+
     this.roomManager.listenToPublicRooms((rooms) => {
       this.screenManager.updatePublicRooms(rooms);
+
+      if (firstFetch) {
+        for (const r of rooms) this.knownRoomCodes.add(r.code);
+        firstFetch = false;
+        return;
+      }
+
+      // Yeni odaları tespit et
+      for (const room of rooms) {
+        if (this.knownRoomCodes.has(room.code)) continue;
+        this.knownRoomCodes.add(room.code);
+        if (room.code === this.roomCode) continue; // Kendi odam
+
+        this.screenManager.showRoomNotification(
+          room.hostName,
+          room.visibility,
+          () => {
+            if (room.visibility === 'invite') {
+              this.sendInviteRequest(room.code);
+            } else {
+              this.joinPublicRoom(room.code);
+            }
+          }
+        );
+      }
+
+      // Kapanan odaları temizle
+      const activeCodes = new Set(rooms.map((r) => r.code));
+      for (const code of this.knownRoomCodes) {
+        if (!activeCodes.has(code)) this.knownRoomCodes.delete(code);
+      }
     });
   }
 
