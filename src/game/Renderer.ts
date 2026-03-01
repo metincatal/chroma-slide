@@ -434,13 +434,19 @@ export class Renderer {
     // 1. Base katman (bg + board + path cukurlari + 3D)
     if (this.baseCanvas) ctx.drawImage(this.baseCanvas, 0, 0);
 
-    // 2. Boyali karolar — her hucre komşularına gore yuvarlak köşeli çizilir
+    // 2. Boyali karolar — her hucre tam boyutunda, sadece PAINTED komsuya gore yuvarlak kose
     const now = performance.now();
     const colorIdx = level.data.colorIndex % PAINT_GRADIENTS.length;
     const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
     const s = this.cellSize;
     const r = Math.max(4, s * 0.28);
     const ox = this.offsetX, oy = this.offsetY;
+
+    // Sadece PAINTED komşu mu? (PATH komşusu kose yuvarlamasını etkilemez)
+    const isPainted = (grid: number[], nx: number, ny: number) => {
+      if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
+      return grid[ny * gw + nx] === PAINTED;
+    };
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
@@ -449,31 +455,24 @@ export class Renderer {
         const animKey = `${x},${y}`;
         const animStart = level.paintAnimations.get(animKey);
         const animT = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
-        const eased = this.easeOutBack(animT);
         const progress = level.getPaintProgress(x, y);
         const paintColor = this.lerpColor(gradStart, gradEnd, progress);
 
-        // Boyali hucrenin komsu durumunu hesapla (ayni grup = PAINTED veya PATH)
-        const isPaintedOrPath = (nx: number, ny: number) => {
-          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
-          return level.grid[ny * gw + nx] !== WALL;
-        };
-        const top    = isPaintedOrPath(x, y - 1);
-        const bottom = isPaintedOrPath(x, y + 1);
-        const left   = isPaintedOrPath(x - 1, y);
-        const right  = isPaintedOrPath(x + 1, y);
+        // Komsu PAINTED mi? Degil ise kose yuvarlak
+        const top    = isPainted(level.grid, x, y - 1);
+        const bottom = isPainted(level.grid, x, y + 1);
+        const left   = isPainted(level.grid, x - 1, y);
+        const right  = isPainted(level.grid, x + 1, y);
 
-        // Animasyon: hucre kendi icinden buyuyerek acilir, koseler komsuya gore
-        const scale = eased;
-        const px = ox + x * s + s * (1 - scale) / 2;
-        const py = oy + y * s + s * (1 - scale) / 2;
-        const sz = s * scale;
+        // Hucre tam boyutunda (animT ne olursa olsun), sadece opaklık değişir
+        const px = ox + x * s;
+        const py = oy + y * s;
+        const sz = s;
 
-        // Konveks koseler: komsu yoksa yuvarlat, var ise kare
-        const tlR = (!top && !left) ? r * scale : 0;
-        const trR = (!top && !right) ? r * scale : 0;
-        const brR = (!bottom && !right) ? r * scale : 0;
-        const blR = (!bottom && !left) ? r * scale : 0;
+        const tlR = (!top && !left) ? r : 0;
+        const trR = (!top && !right) ? r : 0;
+        const brR = (!bottom && !right) ? r : 0;
+        const blR = (!bottom && !left) ? r : 0;
 
         const cell = new Path2D();
         cell.moveTo(px + tlR, py);
@@ -491,17 +490,17 @@ export class Renderer {
         else cell.lineTo(px, py);
         cell.closePath();
 
+        // Opaklik animasyonu: 0'dan 1'e (scale yerine fade-in)
         ctx.fillStyle = paintColor;
-        ctx.globalAlpha = 0.35 + 0.65 * animT;
+        ctx.globalAlpha = (0.35 + 0.65 * animT);
         ctx.fill(cell);
-        ctx.globalAlpha = 1;
 
         if (animT < 1) {
           ctx.fillStyle = '#fff';
-          ctx.globalAlpha = (1 - animT) * 0.3;
+          ctx.globalAlpha = (1 - animT) * 0.25;
           ctx.fill(cell);
-          ctx.globalAlpha = 1;
         }
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -580,6 +579,11 @@ export class Renderer {
     const r   = Math.max(4, s * 0.28);
     const ox  = this.offsetX, oy = this.offsetY;
 
+    const isPainted = (g: number[], nx: number, ny: number) => {
+      if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
+      return g[ny * gw + nx] === PAINTED;
+    };
+
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.grid[y * gw + x] !== PAINTED) continue;
@@ -587,7 +591,6 @@ export class Renderer {
         const animKey  = `${x},${y}`;
         const animStart = level.paintAnimations.get(animKey);
         const animT    = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
-        const eased    = this.easeOutBack(animT);
 
         // Sahip karonun rengi
         const tileKey  = `${y}_${x}`;
@@ -596,24 +599,19 @@ export class Renderer {
         const progress   = level.getPaintProgress(x, y);
         const paintColor = this.lerpColor(gradStart, gradEnd, progress);
 
-        const isPaintedOrPath = (nx: number, ny: number) => {
-          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
-          return level.grid[ny * gw + nx] !== WALL;
-        };
-        const top    = isPaintedOrPath(x, y - 1);
-        const bottom = isPaintedOrPath(x, y + 1);
-        const left   = isPaintedOrPath(x - 1, y);
-        const right  = isPaintedOrPath(x + 1, y);
+        const top    = isPainted(level.grid, x, y - 1);
+        const bottom = isPainted(level.grid, x, y + 1);
+        const left   = isPainted(level.grid, x - 1, y);
+        const right  = isPainted(level.grid, x + 1, y);
 
-        const scale = eased;
-        const px = ox + x * s + s * (1 - scale) / 2;
-        const py = oy + y * s + s * (1 - scale) / 2;
-        const sz = s * scale;
+        const px = ox + x * s;
+        const py = oy + y * s;
+        const sz = s;
 
-        const tlR = (!top && !left) ? r * scale : 0;
-        const trR = (!top && !right) ? r * scale : 0;
-        const brR = (!bottom && !right) ? r * scale : 0;
-        const blR = (!bottom && !left) ? r * scale : 0;
+        const tlR = (!top && !left) ? r : 0;
+        const trR = (!top && !right) ? r : 0;
+        const brR = (!bottom && !right) ? r : 0;
+        const blR = (!bottom && !left) ? r : 0;
 
         const cell = new Path2D();
         cell.moveTo(px + tlR, py);
@@ -634,14 +632,13 @@ export class Renderer {
         ctx.fillStyle  = paintColor;
         ctx.globalAlpha = 0.35 + 0.65 * animT;
         ctx.fill(cell);
-        ctx.globalAlpha = 1;
 
         if (animT < 1) {
           ctx.fillStyle   = '#fff';
-          ctx.globalAlpha = (1 - animT) * 0.3;
+          ctx.globalAlpha = (1 - animT) * 0.25;
           ctx.fill(cell);
-          ctx.globalAlpha = 1;
         }
+        ctx.globalAlpha = 1;
       }
     }
 
