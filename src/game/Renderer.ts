@@ -264,83 +264,14 @@ export class Renderer {
     return path;
   }
 
-  // Tek bir hucreyi Path2D'ye ekle
+  // Tek bir hucreyi Path2D'ye ekle - tam kare, hic yuvarlama yok
   private addCellToPath(
     path: Path2D,
-    px: number, py: number, s: number, r: number,
-    top: boolean, bottom: boolean, left: boolean, right: boolean,
-    topLeft: boolean, topRight: boolean, bottomLeft: boolean, bottomRight: boolean
+    px: number, py: number, s: number, _r: number,
+    _top: boolean, _bottom: boolean, _left: boolean, _right: boolean,
+    _topLeft: boolean, _topRight: boolean, _bottomLeft: boolean, _bottomRight: boolean
   ) {
-    // Kose radius hesapla
-    // Konveks: iki kenar da acik (PATH) → yuvarlat
-    // Konkav: iki kenar kapali (WALL) ama capraz acik → ic yuvarlat
-    // Duz: kare bırak
-
-    const tlR = (!top && !left) ? r : (top && left && !topLeft) ? r : 0;
-    const trR = (!top && !right) ? r : (top && right && !topRight) ? r : 0;
-    const blR = (!bottom && !left) ? r : (bottom && left && !bottomLeft) ? r : 0;
-    const brR = (!bottom && !right) ? r : (bottom && right && !bottomRight) ? r : 0;
-
-    const tlConvex = !top && !left;
-    const trConvex = !top && !right;
-    const blConvex = !bottom && !left;
-    const brConvex = !bottom && !right;
-
-    const tlConcave = top && left && !topLeft;
-    const trConcave = top && right && !topRight;
-    const blConcave = bottom && left && !bottomLeft;
-    const brConcave = bottom && right && !bottomRight;
-
-    // Tam dikdortgen ciz (her zaman), sonra koseler icin overlay
-    // Basit yaklasim: her hucre icin roundedRect ciz
-    path.moveTo(px + tlR, py);
-
-    // Ust kenar → sag ust kose
-    path.lineTo(px + s - trR, py);
-    if (trConvex) {
-      path.arc(px + s - trR, py + trR, trR, -Math.PI / 2, 0);
-    } else if (trConcave) {
-      // Konkav: kose noktasina git, arc ciz
-      path.lineTo(px + s, py);
-      path.arc(px + s, py, r, Math.PI, Math.PI / 2, true);
-    } else {
-      path.lineTo(px + s, py);
-    }
-
-    // Sag kenar → sag alt kose
-    path.lineTo(px + s, py + s - brR);
-    if (brConvex) {
-      path.arc(px + s - brR, py + s - brR, brR, 0, Math.PI / 2);
-    } else if (brConcave) {
-      path.lineTo(px + s, py + s);
-      path.arc(px + s, py + s, r, -Math.PI / 2, Math.PI, true);
-    } else {
-      path.lineTo(px + s, py + s);
-    }
-
-    // Alt kenar → sol alt kose
-    path.lineTo(px + blR, py + s);
-    if (blConvex) {
-      path.arc(px + blR, py + s - blR, blR, Math.PI / 2, Math.PI);
-    } else if (blConcave) {
-      path.lineTo(px, py + s);
-      path.arc(px, py + s, r, 0, -Math.PI / 2, true);
-    } else {
-      path.lineTo(px, py + s);
-    }
-
-    // Sol kenar → sol ust kose
-    path.lineTo(px, py + tlR);
-    if (tlConvex) {
-      path.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
-    } else if (tlConcave) {
-      path.lineTo(px, py);
-      path.arc(px, py, r, Math.PI / 2, 0, true);
-    } else {
-      path.lineTo(px, py);
-    }
-
-    path.closePath();
+    path.rect(px, py, s, s);
   }
 
   // PATH kanallarini ciz (cukur efekti)
