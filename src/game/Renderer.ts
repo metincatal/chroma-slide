@@ -196,9 +196,12 @@ export class Renderer {
     this.fillBoardShape(ctx, grid, gw, gh, s, ox, oy, r);
     ctx.restore();
 
-    // 5. PATH cukurlari - board seklini clip olarak kullanip, icindeki path'leri ciz
-    // Path hucreleri = cukur/oyuk (guclu golge ile derinlik)
+    // 5. PATH cukurlari - board clip mask icinde
+    ctx.save();
+    const boardClip = this.createBoardClipPath(grid, gw, gh, s, ox, oy, r);
+    ctx.clip(boardClip, 'nonzero');
     this.drawPathChannels(ctx, grid, gw, gh, s, ox, oy);
+    ctx.restore();
 
     // 6. Board kenar vurgusu (kenar cizgisi)
     ctx.save();
@@ -210,137 +213,63 @@ export class Renderer {
     this.baseLevelId = level.data.id;
   }
 
-  // Board seklini doldur (dairesel koseli WALL hucreleri)
+  // Board clip path olustur: konveks koseli WALL blogu
+  private createBoardClipPath(
+    grid: number[], gw: number, gh: number,
+    s: number, ox: number, oy: number, r: number
+  ): Path2D {
+    const path = new Path2D();
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        if (grid[y * gw + x] !== WALL) continue;
+        const px = ox + x * s;
+        const py = oy + y * s;
+        const top = this.isWall(grid, gw, gh, x, y - 1);
+        const bottom = this.isWall(grid, gw, gh, x, y + 1);
+        const left = this.isWall(grid, gw, gh, x - 1, y);
+        const right = this.isWall(grid, gw, gh, x + 1, y);
+        // Sadece konveks koseler yuvarlak; ic koseler ve duz kenarlardaki koseler kare
+        const tlR = (!top && !left) ? r : 0;
+        const trR = (!top && !right) ? r : 0;
+        const brR = (!bottom && !right) ? r : 0;
+        const blR = (!bottom && !left) ? r : 0;
+        path.moveTo(px + tlR, py);
+        path.lineTo(px + s - trR, py);
+        if (trR > 0) path.arc(px + s - trR, py + trR, trR, -Math.PI / 2, 0);
+        else path.lineTo(px + s, py);
+        path.lineTo(px + s, py + s - brR);
+        if (brR > 0) path.arc(px + s - brR, py + s - brR, brR, 0, Math.PI / 2);
+        else path.lineTo(px + s, py + s);
+        path.lineTo(px + blR, py + s);
+        if (blR > 0) path.arc(px + blR, py + s - blR, blR, Math.PI / 2, Math.PI);
+        else path.lineTo(px, py + s);
+        path.lineTo(px, py + tlR);
+        if (tlR > 0) path.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
+        else path.lineTo(px, py);
+        path.closePath();
+      }
+    }
+    return path;
+  }
+
+  // Board seklini doldur: konveks koseli clip path ile tek fill
   private fillBoardShape(
     ctx: CanvasRenderingContext2D,
     grid: number[], gw: number, gh: number,
     s: number, ox: number, oy: number, r: number
   ) {
-    const path = this.createBoardPath2D(grid, gw, gh, s, ox, oy, r);
-    ctx.fill(path);
+    const path = this.createBoardClipPath(grid, gw, gh, s, ox, oy, r);
+    ctx.fill(path, 'nonzero');
   }
 
-  // Board seklini stroke (kenar cizgisi)
+  // Board seklini stroke (kenar cizgisi) - clip path ile
   private strokeBoardShape(
     ctx: CanvasRenderingContext2D,
     grid: number[], gw: number, gh: number,
     s: number, ox: number, oy: number, r: number
   ) {
-    const path = this.createBoardPath2D(grid, gw, gh, s, ox, oy, r);
+    const path = this.createBoardClipPath(grid, gw, gh, s, ox, oy, r);
     ctx.stroke(path);
-  }
-
-  // Path2D olustur: tum WALL hucrelerini dairesel koseli olarak birlestir
-  private createBoardPath2D(
-    grid: number[], gw: number, gh: number,
-    s: number, ox: number, oy: number, r: number
-  ): Path2D {
-    const path = new Path2D();
-
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        if (grid[y * gw + x] !== WALL) continue;
-
-        const px = ox + x * s;
-        const py = oy + y * s;
-
-        // 4 kenar komsu
-        const top = this.isWall(grid, gw, gh, x, y - 1);
-        const bottom = this.isWall(grid, gw, gh, x, y + 1);
-        const left = this.isWall(grid, gw, gh, x - 1, y);
-        const right = this.isWall(grid, gw, gh, x + 1, y);
-
-        // 4 capraz komsu
-        const topLeft = this.isWall(grid, gw, gh, x - 1, y - 1);
-        const topRight = this.isWall(grid, gw, gh, x + 1, y - 1);
-        const bottomLeft = this.isWall(grid, gw, gh, x - 1, y + 1);
-        const bottomRight = this.isWall(grid, gw, gh, x + 1, y + 1);
-
-        // Her hucre icin roundRect benzeri sekil olustur
-        this.addCellToPath(path, px, py, s, r, top, bottom, left, right, topLeft, topRight, bottomLeft, bottomRight);
-      }
-    }
-
-    return path;
-  }
-
-  // Tek bir hucreyi Path2D'ye ekle
-  private addCellToPath(
-    path: Path2D,
-    px: number, py: number, s: number, r: number,
-    top: boolean, bottom: boolean, left: boolean, right: boolean,
-    topLeft: boolean, topRight: boolean, bottomLeft: boolean, bottomRight: boolean
-  ) {
-    // Kose radius hesapla
-    // Konveks: iki kenar da acik (PATH) → yuvarlat
-    // Konkav: iki kenar kapali (WALL) ama capraz acik → ic yuvarlat
-    // Duz: kare bırak
-
-    const tlR = (!top && !left) ? r : (top && left && !topLeft) ? r : 0;
-    const trR = (!top && !right) ? r : (top && right && !topRight) ? r : 0;
-    const blR = (!bottom && !left) ? r : (bottom && left && !bottomLeft) ? r : 0;
-    const brR = (!bottom && !right) ? r : (bottom && right && !bottomRight) ? r : 0;
-
-    const tlConvex = !top && !left;
-    const trConvex = !top && !right;
-    const blConvex = !bottom && !left;
-    const brConvex = !bottom && !right;
-
-    const tlConcave = top && left && !topLeft;
-    const trConcave = top && right && !topRight;
-    const blConcave = bottom && left && !bottomLeft;
-    const brConcave = bottom && right && !bottomRight;
-
-    // Tam dikdortgen ciz (her zaman), sonra koseler icin overlay
-    // Basit yaklasim: her hucre icin roundedRect ciz
-    path.moveTo(px + tlR, py);
-
-    // Ust kenar → sag ust kose
-    path.lineTo(px + s - trR, py);
-    if (trConvex) {
-      path.arc(px + s - trR, py + trR, trR, -Math.PI / 2, 0);
-    } else if (trConcave) {
-      // Konkav: kose noktasina git, arc ciz
-      path.lineTo(px + s, py);
-      path.arc(px + s, py, r, Math.PI, Math.PI / 2, true);
-    } else {
-      path.lineTo(px + s, py);
-    }
-
-    // Sag kenar → sag alt kose
-    path.lineTo(px + s, py + s - brR);
-    if (brConvex) {
-      path.arc(px + s - brR, py + s - brR, brR, 0, Math.PI / 2);
-    } else if (brConcave) {
-      path.lineTo(px + s, py + s);
-      path.arc(px + s, py + s, r, -Math.PI / 2, Math.PI, true);
-    } else {
-      path.lineTo(px + s, py + s);
-    }
-
-    // Alt kenar → sol alt kose
-    path.lineTo(px + blR, py + s);
-    if (blConvex) {
-      path.arc(px + blR, py + s - blR, blR, Math.PI / 2, Math.PI);
-    } else if (blConcave) {
-      path.lineTo(px, py + s);
-      path.arc(px, py + s, r, 0, -Math.PI / 2, true);
-    } else {
-      path.lineTo(px, py + s);
-    }
-
-    // Sol kenar → sol ust kose
-    path.lineTo(px, py + tlR);
-    if (tlConvex) {
-      path.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
-    } else if (tlConcave) {
-      path.lineTo(px, py);
-      path.arc(px, py, r, Math.PI / 2, 0, true);
-    } else {
-      path.lineTo(px, py);
-    }
-
-    path.closePath();
   }
 
   // PATH kanallarini ciz (cukur efekti)
