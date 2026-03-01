@@ -434,45 +434,76 @@ export class Renderer {
     // 1. Base katman (bg + board + path cukurlari + 3D)
     if (this.baseCanvas) ctx.drawImage(this.baseCanvas, 0, 0);
 
-    // 2. Boyali karolar — path blob clip icinde, koseler path sekliyle oturuyor
+    // 2. Boyali karolar — her hucre komşularına gore yuvarlak köşeli çizilir
     const now = performance.now();
     const colorIdx = level.data.colorIndex % PAINT_GRADIENTS.length;
     const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
     const s = this.cellSize;
-
-    ctx.save();
-    if (this.cachedPathBlob) ctx.clip(this.cachedPathBlob, 'nonzero');
+    const r = Math.max(4, s * 0.28);
+    const ox = this.offsetX, oy = this.offsetY;
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.grid[y * gw + x] !== PAINTED) continue;
-        const px = this.offsetX + x * s;
-        const py = this.offsetY + y * s;
+
         const animKey = `${x},${y}`;
         const animStart = level.paintAnimations.get(animKey);
         const animT = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
         const eased = this.easeOutBack(animT);
-        const ccx = px + s / 2, ccy = py + s / 2;
-        // Animasyon sırasında hafif büyük, bitince tam hücre boyutu
-        const sw = s * eased, sh = s * eased;
-
         const progress = level.getPaintProgress(x, y);
         const paintColor = this.lerpColor(gradStart, gradEnd, progress);
 
+        // Boyali hucrenin komsu durumunu hesapla (ayni grup = PAINTED veya PATH)
+        const isPaintedOrPath = (nx: number, ny: number) => {
+          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
+          return level.grid[ny * gw + nx] !== WALL;
+        };
+        const top    = isPaintedOrPath(x, y - 1);
+        const bottom = isPaintedOrPath(x, y + 1);
+        const left   = isPaintedOrPath(x - 1, y);
+        const right  = isPaintedOrPath(x + 1, y);
+
+        // Animasyon: hucre kendi icinden buyuyerek acilir, koseler komsuya gore
+        const scale = eased;
+        const px = ox + x * s + s * (1 - scale) / 2;
+        const py = oy + y * s + s * (1 - scale) / 2;
+        const sz = s * scale;
+
+        // Konveks koseler: komsu yoksa yuvarlat, var ise kare
+        const tlR = (!top && !left) ? r * scale : 0;
+        const trR = (!top && !right) ? r * scale : 0;
+        const brR = (!bottom && !right) ? r * scale : 0;
+        const blR = (!bottom && !left) ? r * scale : 0;
+
+        const cell = new Path2D();
+        cell.moveTo(px + tlR, py);
+        cell.lineTo(px + sz - trR, py);
+        if (trR > 0) cell.arc(px + sz - trR, py + trR, trR, -Math.PI / 2, 0);
+        else cell.lineTo(px + sz, py);
+        cell.lineTo(px + sz, py + sz - brR);
+        if (brR > 0) cell.arc(px + sz - brR, py + sz - brR, brR, 0, Math.PI / 2);
+        else cell.lineTo(px + sz, py + sz);
+        cell.lineTo(px + blR, py + sz);
+        if (blR > 0) cell.arc(px + blR, py + sz - blR, blR, Math.PI / 2, Math.PI);
+        else cell.lineTo(px, py + sz);
+        cell.lineTo(px, py + tlR);
+        if (tlR > 0) cell.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
+        else cell.lineTo(px, py);
+        cell.closePath();
+
         ctx.fillStyle = paintColor;
         ctx.globalAlpha = 0.35 + 0.65 * animT;
-        ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+        ctx.fill(cell);
         ctx.globalAlpha = 1;
 
         if (animT < 1) {
           ctx.fillStyle = '#fff';
           ctx.globalAlpha = (1 - animT) * 0.3;
-          ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+          ctx.fill(cell);
           ctx.globalAlpha = 1;
         }
       }
     }
-    ctx.restore();
 
     // 3. Baslangic noktasi isareti
     this.drawStartMarker(ctx, level, now);
@@ -543,47 +574,76 @@ export class Renderer {
     // 1. Base katman
     if (this.baseCanvas) ctx.drawImage(this.baseCanvas, 0, 0);
 
-    // 2. Boyalı karolar — path blob clip icinde (koseler path sekliyle oturuyor)
+    // 2. Boyalı karolar — her hücre komşularına göre yuvarlak köşeli çizilir
     const now = performance.now();
     const s   = this.cellSize;
-
-    ctx.save();
-    if (this.cachedPathBlob) ctx.clip(this.cachedPathBlob, 'nonzero');
+    const r   = Math.max(4, s * 0.28);
+    const ox  = this.offsetX, oy = this.offsetY;
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.grid[y * gw + x] !== PAINTED) continue;
 
-        const px       = this.offsetX + x * s;
-        const py       = this.offsetY + y * s;
         const animKey  = `${x},${y}`;
         const animStart = level.paintAnimations.get(animKey);
         const animT    = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
         const eased    = this.easeOutBack(animT);
-        const ccx      = px + s / 2, ccy = py + s / 2;
-        const sw       = s * eased, sh = s * eased;
 
         // Sahip karonun rengi
-        const tileKey  = `${y}_${x}`; // Firebase formatı: y_x
+        const tileKey  = `${y}_${x}`;
         const colorIdx = (tileColors.get(tileKey) ?? myColorIndex) % PAINT_GRADIENTS.length;
         const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
         const progress   = level.getPaintProgress(x, y);
         const paintColor = this.lerpColor(gradStart, gradEnd, progress);
 
+        const isPaintedOrPath = (nx: number, ny: number) => {
+          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
+          return level.grid[ny * gw + nx] !== WALL;
+        };
+        const top    = isPaintedOrPath(x, y - 1);
+        const bottom = isPaintedOrPath(x, y + 1);
+        const left   = isPaintedOrPath(x - 1, y);
+        const right  = isPaintedOrPath(x + 1, y);
+
+        const scale = eased;
+        const px = ox + x * s + s * (1 - scale) / 2;
+        const py = oy + y * s + s * (1 - scale) / 2;
+        const sz = s * scale;
+
+        const tlR = (!top && !left) ? r * scale : 0;
+        const trR = (!top && !right) ? r * scale : 0;
+        const brR = (!bottom && !right) ? r * scale : 0;
+        const blR = (!bottom && !left) ? r * scale : 0;
+
+        const cell = new Path2D();
+        cell.moveTo(px + tlR, py);
+        cell.lineTo(px + sz - trR, py);
+        if (trR > 0) cell.arc(px + sz - trR, py + trR, trR, -Math.PI / 2, 0);
+        else cell.lineTo(px + sz, py);
+        cell.lineTo(px + sz, py + sz - brR);
+        if (brR > 0) cell.arc(px + sz - brR, py + sz - brR, brR, 0, Math.PI / 2);
+        else cell.lineTo(px + sz, py + sz);
+        cell.lineTo(px + blR, py + sz);
+        if (blR > 0) cell.arc(px + blR, py + sz - blR, blR, Math.PI / 2, Math.PI);
+        else cell.lineTo(px, py + sz);
+        cell.lineTo(px, py + tlR);
+        if (tlR > 0) cell.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
+        else cell.lineTo(px, py);
+        cell.closePath();
+
         ctx.fillStyle  = paintColor;
         ctx.globalAlpha = 0.35 + 0.65 * animT;
-        ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+        ctx.fill(cell);
         ctx.globalAlpha = 1;
 
         if (animT < 1) {
           ctx.fillStyle   = '#fff';
           ctx.globalAlpha = (1 - animT) * 0.3;
-          ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+          ctx.fill(cell);
           ctx.globalAlpha = 1;
         }
       }
     }
-    ctx.restore();
 
     // 3. Uzak oyuncu topları (arkada)
     for (const rp of remotePlayers) {
