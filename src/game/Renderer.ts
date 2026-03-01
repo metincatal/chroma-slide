@@ -48,9 +48,6 @@ export class Renderer {
   private baseW = 0;
   private baseH = 0;
 
-  // Path blob cache: boyama clip icin onceden hesaplanmis path
-  private cachedPathBlob: Path2D | null = null;
-
   // Parcacik izi
   private trailParticles: TrailParticle[] = [];
   private lastBallPx = -1;
@@ -199,9 +196,8 @@ export class Renderer {
     this.fillBoardShape(ctx, grid, gw, gh, s, ox, oy, r);
     ctx.restore();
 
-    // 5. PATH cukurlari — path blob ile organik sekil
-    // Path blob'u once hesapla ve cache'le (render'da boyama clip olarak kullanilir)
-    this.cachedPathBlob = this.createPathBlobPath(grid, gw, gh, s, ox, oy, r);
+    // 5. PATH cukurlari - board seklini clip olarak kullanip, icindeki path'leri ciz
+    // Path hucreleri = cukur/oyuk (guclu golge ile derinlik)
     this.drawPathChannels(ctx, grid, gw, gh, s, ox, oy);
 
     // 6. Board kenar vurgusu (kenar cizgisi)
@@ -214,134 +210,184 @@ export class Renderer {
     this.baseLevelId = level.data.id;
   }
 
-  // Hucre blogu icin Path2D olustur: hedef tip (WALL veya PATH)
-  // Konveks koseler (dis acilara): arc ile yuvarlat
-  // Konkav koseler (ic koseler): kare birak — karsit blok zaten dolduruyor
-  private createCellGroupPath(
-    grid: number[], gw: number, gh: number,
-    s: number, ox: number, oy: number, r: number,
-    targetType: number  // WALL veya PATH/PAINTED
-  ): Path2D {
-    const path = new Path2D();
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        const cell = grid[y * gw + x];
-        // PATH icin: PATH veya PAINTED hucreleri dahil et
-        const isTarget = targetType === WALL
-          ? cell === WALL
-          : cell !== WALL;
-        if (!isTarget) continue;
-
-        const px = ox + x * s;
-        const py = oy + y * s;
-
-        // Komsu aynı grupta mi?
-        const sameGroup = (nx: number, ny: number) => {
-          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
-          const c = grid[ny * gw + nx];
-          return targetType === WALL ? c === WALL : c !== WALL;
-        };
-
-        const top    = sameGroup(x, y - 1);
-        const bottom = sameGroup(x, y + 1);
-        const left   = sameGroup(x - 1, y);
-        const right  = sameGroup(x + 1, y);
-
-        // Konveks kose: her iki komsu da farkli grupta → dis kose → yuvarlat
-        const tlR = (!top && !left) ? r : 0;
-        const trR = (!top && !right) ? r : 0;
-        const brR = (!bottom && !right) ? r : 0;
-        const blR = (!bottom && !left) ? r : 0;
-
-        path.moveTo(px + tlR, py);
-        path.lineTo(px + s - trR, py);
-        if (trR > 0) path.arc(px + s - trR, py + trR, trR, -Math.PI / 2, 0);
-        else path.lineTo(px + s, py);
-        path.lineTo(px + s, py + s - brR);
-        if (brR > 0) path.arc(px + s - brR, py + s - brR, brR, 0, Math.PI / 2);
-        else path.lineTo(px + s, py + s);
-        path.lineTo(px + blR, py + s);
-        if (blR > 0) path.arc(px + blR, py + s - blR, blR, Math.PI / 2, Math.PI);
-        else path.lineTo(px, py + s);
-        path.lineTo(px, py + tlR);
-        if (tlR > 0) path.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
-        else path.lineTo(px, py);
-        path.closePath();
-      }
-    }
-    return path;
-  }
-
-  // Board clip path (WALL hucreleri)
-  private createBoardClipPath(
-    grid: number[], gw: number, gh: number,
-    s: number, ox: number, oy: number, r: number
-  ): Path2D {
-    return this.createCellGroupPath(grid, gw, gh, s, ox, oy, r, WALL);
-  }
-
-  // Path blob path (PATH/PAINTED hucreleri)
-  private createPathBlobPath(
-    grid: number[], gw: number, gh: number,
-    s: number, ox: number, oy: number, r: number
-  ): Path2D {
-    return this.createCellGroupPath(grid, gw, gh, s, ox, oy, r, PATH);
-  }
-
-  // Board seklini doldur: konveks koseli clip path ile tek fill
+  // Board seklini doldur (dairesel koseli WALL hucreleri)
   private fillBoardShape(
     ctx: CanvasRenderingContext2D,
     grid: number[], gw: number, gh: number,
     s: number, ox: number, oy: number, r: number
   ) {
-    const path = this.createBoardClipPath(grid, gw, gh, s, ox, oy, r);
-    ctx.fill(path, 'nonzero');
+    const path = this.createBoardPath2D(grid, gw, gh, s, ox, oy, r);
+    ctx.fill(path);
   }
 
-  // Board seklini stroke (kenar cizgisi) - clip path ile
+  // Board seklini stroke (kenar cizgisi)
   private strokeBoardShape(
     ctx: CanvasRenderingContext2D,
     grid: number[], gw: number, gh: number,
     s: number, ox: number, oy: number, r: number
   ) {
-    const path = this.createBoardClipPath(grid, gw, gh, s, ox, oy, r);
+    const path = this.createBoardPath2D(grid, gw, gh, s, ox, oy, r);
     ctx.stroke(path);
   }
 
-  // PATH kanallarini ciz: path blob kullanarak organik sekil, ic golge ile derinlik
+  // Path2D olustur: tum WALL hucrelerini dairesel koseli olarak birlestir
+  private createBoardPath2D(
+    grid: number[], gw: number, gh: number,
+    s: number, ox: number, oy: number, r: number
+  ): Path2D {
+    const path = new Path2D();
+
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        if (grid[y * gw + x] !== WALL) continue;
+
+        const px = ox + x * s;
+        const py = oy + y * s;
+
+        // 4 kenar komsu
+        const top = this.isWall(grid, gw, gh, x, y - 1);
+        const bottom = this.isWall(grid, gw, gh, x, y + 1);
+        const left = this.isWall(grid, gw, gh, x - 1, y);
+        const right = this.isWall(grid, gw, gh, x + 1, y);
+
+        // 4 capraz komsu
+        const topLeft = this.isWall(grid, gw, gh, x - 1, y - 1);
+        const topRight = this.isWall(grid, gw, gh, x + 1, y - 1);
+        const bottomLeft = this.isWall(grid, gw, gh, x - 1, y + 1);
+        const bottomRight = this.isWall(grid, gw, gh, x + 1, y + 1);
+
+        // Her hucre icin roundRect benzeri sekil olustur
+        this.addCellToPath(path, px, py, s, r, top, bottom, left, right, topLeft, topRight, bottomLeft, bottomRight);
+      }
+    }
+
+    return path;
+  }
+
+  // Tek bir hucreyi Path2D'ye ekle
+  private addCellToPath(
+    path: Path2D,
+    px: number, py: number, s: number, r: number,
+    top: boolean, bottom: boolean, left: boolean, right: boolean,
+    topLeft: boolean, topRight: boolean, bottomLeft: boolean, bottomRight: boolean
+  ) {
+    // Kose radius hesapla
+    // Konveks: iki kenar da acik (PATH) → yuvarlat
+    // Konkav: iki kenar kapali (WALL) ama capraz acik → ic yuvarlat
+    // Duz: kare bırak
+
+    const tlR = (!top && !left) ? r : (top && left && !topLeft) ? r : 0;
+    const trR = (!top && !right) ? r : (top && right && !topRight) ? r : 0;
+    const blR = (!bottom && !left) ? r : (bottom && left && !bottomLeft) ? r : 0;
+    const brR = (!bottom && !right) ? r : (bottom && right && !bottomRight) ? r : 0;
+
+    const tlConvex = !top && !left;
+    const trConvex = !top && !right;
+    const blConvex = !bottom && !left;
+    const brConvex = !bottom && !right;
+
+    const tlConcave = top && left && !topLeft;
+    const trConcave = top && right && !topRight;
+    const blConcave = bottom && left && !bottomLeft;
+    const brConcave = bottom && right && !bottomRight;
+
+    // Tam dikdortgen ciz (her zaman), sonra koseler icin overlay
+    // Basit yaklasim: her hucre icin roundedRect ciz
+    path.moveTo(px + tlR, py);
+
+    // Ust kenar → sag ust kose
+    path.lineTo(px + s - trR, py);
+    if (trConvex) {
+      path.arc(px + s - trR, py + trR, trR, -Math.PI / 2, 0);
+    } else if (trConcave) {
+      // Konkav: kose noktasina git, arc ciz
+      path.lineTo(px + s, py);
+      path.arc(px + s, py, r, Math.PI, Math.PI / 2, true);
+    } else {
+      path.lineTo(px + s, py);
+    }
+
+    // Sag kenar → sag alt kose
+    path.lineTo(px + s, py + s - brR);
+    if (brConvex) {
+      path.arc(px + s - brR, py + s - brR, brR, 0, Math.PI / 2);
+    } else if (brConcave) {
+      path.lineTo(px + s, py + s);
+      path.arc(px + s, py + s, r, -Math.PI / 2, Math.PI, true);
+    } else {
+      path.lineTo(px + s, py + s);
+    }
+
+    // Alt kenar → sol alt kose
+    path.lineTo(px + blR, py + s);
+    if (blConvex) {
+      path.arc(px + blR, py + s - blR, blR, Math.PI / 2, Math.PI);
+    } else if (blConcave) {
+      path.lineTo(px, py + s);
+      path.arc(px, py + s, r, 0, -Math.PI / 2, true);
+    } else {
+      path.lineTo(px, py + s);
+    }
+
+    // Sol kenar → sol ust kose
+    path.lineTo(px, py + tlR);
+    if (tlConvex) {
+      path.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
+    } else if (tlConcave) {
+      path.lineTo(px, py);
+      path.arc(px, py, r, Math.PI / 2, 0, true);
+    } else {
+      path.lineTo(px, py);
+    }
+
+    path.closePath();
+  }
+
+  // PATH kanallarini ciz (cukur efekti)
   private drawPathChannels(
     ctx: CanvasRenderingContext2D,
     grid: number[], gw: number, gh: number,
     s: number, ox: number, oy: number
   ) {
-    const r = Math.max(4, s * 0.28);
-    const pathBlob = this.createPathBlobPath(grid, gw, gh, s, ox, oy, r);
+    // Her path hucresi icin cukur efekti: golge + zemin rengi
+    const pathR = Math.max(2, s * 0.08); // Path kose yaricapi (kucuk)
 
-    // 1. Path blobu koyu golge (cukur hissi)
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fill(pathBlob, 'nonzero');
-
-    // 2. Path zemin rengi (texture veya duz)
-    let pathFill: string | CanvasPattern = this.pathColor;
-    if (this.texturesLoaded && this.texPath) {
-      const p = ctx.createPattern(this.texPath, 'repeat');
-      if (p) pathFill = p;
-    }
-    ctx.fillStyle = pathFill;
-    ctx.fill(pathBlob, 'nonzero');
-
-    // 3. Path blob clip icinde ic golgeler
-    ctx.save();
-    ctx.clip(pathBlob, 'nonzero');
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (grid[y * gw + x] === WALL) continue;
+
         const px = ox + x * s;
         const py = oy + y * s;
+        const e = 0.5; // Bosluk kapatma
+
+        // Komsulara gore genisletme (bitisik path varsa arada bosluk olmasin)
+        const leftPath = this.isPath(grid, gw, gh, x - 1, y);
+        const rightPath = this.isPath(grid, gw, gh, x + 1, y);
+        const topPath = this.isPath(grid, gw, gh, x, y - 1);
+        const bottomPath = this.isPath(grid, gw, gh, x, y + 1);
+
+        const dx1 = leftPath ? -e : 0;
+        const dx2 = rightPath ? e : 0;
+        const dy1 = topPath ? -e : 0;
+        const dy2 = bottomPath ? e : 0;
+
+        // Cukur arka plani (koyu golge)
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(px + dx1, py + dy1, s + dx2 - dx1, s + dy2 - dy1);
+
+        // Path zemin rengi
+        let pathFill: string | CanvasPattern = this.pathColor;
+        if (this.texturesLoaded && this.texPath) {
+          const p = ctx.createPattern(this.texPath, 'repeat');
+          if (p) pathFill = p;
+        }
+        ctx.fillStyle = pathFill;
+        ctx.fillRect(px + dx1, py + dy1, s + dx2 - dx1, s + dy2 - dy1);
+
+        // Ic golgeler (derinlik hissi) - board'un kenarlarindan gelen golgeler
         this.drawInnerShadows(ctx, px, py, s, x, y, gw, gh, grid);
       }
     }
-    ctx.restore();
   }
 
   // Path hucresinin ic golgeleri (board kenarlarindan gelen derinlik golgeleri)
@@ -434,73 +480,39 @@ export class Renderer {
     // 1. Base katman (bg + board + path cukurlari + 3D)
     if (this.baseCanvas) ctx.drawImage(this.baseCanvas, 0, 0);
 
-    // 2. Boyali karolar — her hucre tam boyutunda, sadece PAINTED komsuya gore yuvarlak kose
+    // 2. Boyali karolar
     const now = performance.now();
     const colorIdx = level.data.colorIndex % PAINT_GRADIENTS.length;
     const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
     const s = this.cellSize;
-    const r = Math.max(4, s * 0.28);
-    const ox = this.offsetX, oy = this.offsetY;
-
-    // Sadece PAINTED komşu mu? (PATH komşusu kose yuvarlamasını etkilemez)
-    const isPainted = (grid: number[], nx: number, ny: number) => {
-      if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
-      return grid[ny * gw + nx] === PAINTED;
-    };
+    const e = 0.5;
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.grid[y * gw + x] !== PAINTED) continue;
-
+        const px = this.offsetX + x * s;
+        const py = this.offsetY + y * s;
         const animKey = `${x},${y}`;
         const animStart = level.paintAnimations.get(animKey);
         const animT = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
+        const eased = this.easeOutBack(animT);
+        const cx = px + s / 2, cy = py + s / 2;
+        const sw = s * eased + e * 2, sh = s * eased + e * 2;
+
         const progress = level.getPaintProgress(x, y);
         const paintColor = this.lerpColor(gradStart, gradEnd, progress);
 
-        // Komsu PAINTED mi? Degil ise kose yuvarlak
-        const top    = isPainted(level.grid, x, y - 1);
-        const bottom = isPainted(level.grid, x, y + 1);
-        const left   = isPainted(level.grid, x - 1, y);
-        const right  = isPainted(level.grid, x + 1, y);
-
-        // Hucre tam boyutunda (animT ne olursa olsun), sadece opaklık değişir
-        const px = ox + x * s;
-        const py = oy + y * s;
-        const sz = s;
-
-        const tlR = (!top && !left) ? r : 0;
-        const trR = (!top && !right) ? r : 0;
-        const brR = (!bottom && !right) ? r : 0;
-        const blR = (!bottom && !left) ? r : 0;
-
-        const cell = new Path2D();
-        cell.moveTo(px + tlR, py);
-        cell.lineTo(px + sz - trR, py);
-        if (trR > 0) cell.arc(px + sz - trR, py + trR, trR, -Math.PI / 2, 0);
-        else cell.lineTo(px + sz, py);
-        cell.lineTo(px + sz, py + sz - brR);
-        if (brR > 0) cell.arc(px + sz - brR, py + sz - brR, brR, 0, Math.PI / 2);
-        else cell.lineTo(px + sz, py + sz);
-        cell.lineTo(px + blR, py + sz);
-        if (blR > 0) cell.arc(px + blR, py + sz - blR, blR, Math.PI / 2, Math.PI);
-        else cell.lineTo(px, py + sz);
-        cell.lineTo(px, py + tlR);
-        if (tlR > 0) cell.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
-        else cell.lineTo(px, py);
-        cell.closePath();
-
-        // Opaklik animasyonu: 0'dan 1'e (scale yerine fade-in)
         ctx.fillStyle = paintColor;
-        ctx.globalAlpha = (0.35 + 0.65 * animT);
-        ctx.fill(cell);
+        ctx.globalAlpha = 0.35 + 0.65 * animT;
+        ctx.fillRect(cx - sw / 2, cy - sh / 2, sw, sh);
+        ctx.globalAlpha = 1;
 
         if (animT < 1) {
           ctx.fillStyle = '#fff';
-          ctx.globalAlpha = (1 - animT) * 0.25;
-          ctx.fill(cell);
+          ctx.globalAlpha = (1 - animT) * 0.3;
+          ctx.fillRect(cx - sw / 2, cy - sh / 2, sw, sh);
+          ctx.globalAlpha = 1;
         }
-        ctx.globalAlpha = 1;
       }
     }
 
@@ -573,72 +585,42 @@ export class Renderer {
     // 1. Base katman
     if (this.baseCanvas) ctx.drawImage(this.baseCanvas, 0, 0);
 
-    // 2. Boyalı karolar — her hücre komşularına göre yuvarlak köşeli çizilir
+    // 2. Boyalı karolar — her karo için sahiplik rengini kullan
     const now = performance.now();
     const s   = this.cellSize;
-    const r   = Math.max(4, s * 0.28);
-    const ox  = this.offsetX, oy = this.offsetY;
-
-    const isPainted = (g: number[], nx: number, ny: number) => {
-      if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return false;
-      return g[ny * gw + nx] === PAINTED;
-    };
+    const e   = 0.5;
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         if (level.grid[y * gw + x] !== PAINTED) continue;
 
+        const px       = this.offsetX + x * s;
+        const py       = this.offsetY + y * s;
         const animKey  = `${x},${y}`;
         const animStart = level.paintAnimations.get(animKey);
         const animT    = animStart ? Math.min((now - animStart) / PAINT_ANIM_DURATION, 1) : 1;
+        const eased    = this.easeOutBack(animT);
+        const ccx      = px + s / 2, ccy = py + s / 2;
+        const sw       = s * eased + e * 2, sh = s * eased + e * 2;
 
         // Sahip karonun rengi
-        const tileKey  = `${y}_${x}`;
+        const tileKey  = `${y}_${x}`; // Firebase formatı: y_x
         const colorIdx = (tileColors.get(tileKey) ?? myColorIndex) % PAINT_GRADIENTS.length;
         const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
         const progress   = level.getPaintProgress(x, y);
         const paintColor = this.lerpColor(gradStart, gradEnd, progress);
 
-        const top    = isPainted(level.grid, x, y - 1);
-        const bottom = isPainted(level.grid, x, y + 1);
-        const left   = isPainted(level.grid, x - 1, y);
-        const right  = isPainted(level.grid, x + 1, y);
-
-        const px = ox + x * s;
-        const py = oy + y * s;
-        const sz = s;
-
-        const tlR = (!top && !left) ? r : 0;
-        const trR = (!top && !right) ? r : 0;
-        const brR = (!bottom && !right) ? r : 0;
-        const blR = (!bottom && !left) ? r : 0;
-
-        const cell = new Path2D();
-        cell.moveTo(px + tlR, py);
-        cell.lineTo(px + sz - trR, py);
-        if (trR > 0) cell.arc(px + sz - trR, py + trR, trR, -Math.PI / 2, 0);
-        else cell.lineTo(px + sz, py);
-        cell.lineTo(px + sz, py + sz - brR);
-        if (brR > 0) cell.arc(px + sz - brR, py + sz - brR, brR, 0, Math.PI / 2);
-        else cell.lineTo(px + sz, py + sz);
-        cell.lineTo(px + blR, py + sz);
-        if (blR > 0) cell.arc(px + blR, py + sz - blR, blR, Math.PI / 2, Math.PI);
-        else cell.lineTo(px, py + sz);
-        cell.lineTo(px, py + tlR);
-        if (tlR > 0) cell.arc(px + tlR, py + tlR, tlR, Math.PI, -Math.PI / 2);
-        else cell.lineTo(px, py);
-        cell.closePath();
-
         ctx.fillStyle  = paintColor;
         ctx.globalAlpha = 0.35 + 0.65 * animT;
-        ctx.fill(cell);
+        ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+        ctx.globalAlpha = 1;
 
         if (animT < 1) {
           ctx.fillStyle   = '#fff';
-          ctx.globalAlpha = (1 - animT) * 0.25;
-          ctx.fill(cell);
+          ctx.globalAlpha = (1 - animT) * 0.3;
+          ctx.fillRect(ccx - sw / 2, ccy - sh / 2, sw, sh);
+          ctx.globalAlpha = 1;
         }
-        ctx.globalAlpha = 1;
       }
     }
 
