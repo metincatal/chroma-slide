@@ -20,14 +20,14 @@ const THINKING_DIFFICULTIES: DifficultyConfig[] = [
   { name: 'Imkansiz', gridSize: 15, minMoves: 20, maxMoves: 30 },
 ];
 
-// Akis modu zorluk kademeleri (6 kademe)
+// Akis modu zorluk kademeleri (6 kademe) - büyük gridler, açık labirentler
 const RELAXING_DIFFICULTIES: DifficultyConfig[] = [
-  { name: 'Kolay', gridSize: 7, minMoves: 3, maxMoves: 6 },
-  { name: 'Orta', gridSize: 9, minMoves: 5, maxMoves: 9 },
-  { name: 'Zor', gridSize: 11, minMoves: 6, maxMoves: 12 },
-  { name: 'Uzman', gridSize: 13, minMoves: 8, maxMoves: 15 },
-  { name: 'Usta', gridSize: 13, minMoves: 10, maxMoves: 18 },
-  { name: 'Efsane', gridSize: 15, minMoves: 12, maxMoves: 22 },
+  { name: 'Kolay',   gridSize: 9,  minMoves: 4,  maxMoves: 8  },
+  { name: 'Orta',    gridSize: 11, minMoves: 6,  maxMoves: 12 },
+  { name: 'Zor',     gridSize: 13, minMoves: 8,  maxMoves: 16 },
+  { name: 'Uzman',   gridSize: 15, minMoves: 10, maxMoves: 20 },
+  { name: 'Usta',    gridSize: 17, minMoves: 12, maxMoves: 24 },
+  { name: 'Efsane',  gridSize: 19, minMoves: 14, maxMoves: 28 },
 ];
 
 export const LEVELS_PER_MODE = 4000;

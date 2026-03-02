@@ -24,7 +24,6 @@ interface ScreenCallbacks {
   onSelectLevel: (levelId: number) => void;
   onBack: () => void;
   onRestart: () => void;
-  onUndo: () => void;
   onScreenshot: () => void;
   onSelectTheme: (theme: ThemeConfig) => void;
   onShowThemes: () => void;
@@ -128,21 +127,9 @@ export class ScreenManager {
   // Tek oyunculu HUD güncelleme
   // -------------------------------------------------------
 
-  updateHUD(progress: number, remainingUndos?: number) {
+  updateHUD(progress: number, _remainingUndos?: number) {
     const progressFill = this.overlay.querySelector('.progress-fill') as HTMLElement;
     if (progressFill) progressFill.style.width = `${progress * 100}%`;
-
-    if (remainingUndos !== undefined) {
-      const badge   = this.overlay.querySelector('.undo-badge') as HTMLElement;
-      const undoBtn = this.overlay.querySelector('#btn-undo') as HTMLElement;
-      if (badge && this.currentMode === 'thinking') {
-        badge.textContent = `${remainingUndos}`;
-      }
-      if (undoBtn) {
-        if (remainingUndos <= 0) undoBtn.classList.add('hud-btn-disabled');
-        else                     undoBtn.classList.remove('hud-btn-disabled');
-      }
-    }
   }
 
   // -------------------------------------------------------
@@ -677,68 +664,104 @@ export class ScreenManager {
   // SEVİYE SEÇIMI
   // -------------------------------------------------------
 
+  private readonly TIER_GRADIENTS = [
+    'linear-gradient(135deg, #a8d8a8, #6ec47c)',
+    'linear-gradient(135deg, #a8c8f0, #6aaade)',
+    'linear-gradient(135deg, #f0d8a0, #e0bc68)',
+    'linear-gradient(135deg, #c8a8e0, #b07ccc)',
+    'linear-gradient(135deg, #f0a8a8, #e07070)',
+    'linear-gradient(135deg, #a8e8d8, #68ccb8)',
+    'linear-gradient(135deg, #e8c8a0, #d4a460)',
+  ];
+
+  private readonly TIER_ICONS = ['✦', '◈', '⬡', '◉', '❋', '✸', '⬟'];
+
   private showLevelSelect() {
+    this.showTierCards();
+  }
+
+  private showTierCards() {
     const tiers     = getDifficultyTiers(this.currentMode);
-    const modeTitle = this.currentMode === 'thinking' ? 'Taktik' : 'Akis';
+    const modeTitle = this.currentMode === 'thinking' ? 'Taktik Mod' : 'Akış Modu';
+    const allStars  = getAllStars(this.currentMode);
+
+    const tiersHtml = tiers.map((tier, i) => {
+      let completed = 0;
+      for (let lvl = tier.startLevel; lvl <= tier.endLevel; lvl++) {
+        if ((allStars[lvl] || 0) > 0) completed++;
+      }
+      const total    = tier.endLevel - tier.startLevel + 1;
+      const pct      = Math.round((completed / total) * 100);
+      const gradient = this.TIER_GRADIENTS[i % this.TIER_GRADIENTS.length];
+      const icon     = this.TIER_ICONS[i % this.TIER_ICONS.length];
+      return `
+        <button class="tier-card" data-tier="${i}">
+          <div class="tier-card-icon" style="background:${gradient}">${icon}</div>
+          <div class="tier-card-body">
+            <div class="tier-card-name">${tier.name}</div>
+            <div class="tier-card-range">${tier.startLevel} – ${tier.endLevel}</div>
+            ${pct > 0 ? `<div class="tier-card-bar"><div class="tier-card-fill" style="width:${pct}%"></div></div>` : ''}
+          </div>
+          <svg class="tier-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      `;
+    }).join('');
+
     const html = `
       <div class="level-screen">
         <button class="back-btn" id="btn-back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <div class="level-screen-title">${modeTitle} - Seviye Sec</div>
-        <div class="tier-tabs"  id="tier-tabs"></div>
-        <div class="level-grid" id="level-grid"></div>
+        <div class="level-screen-title">${modeTitle}</div>
+        <div class="tier-cards-list">${tiersHtml}</div>
       </div>
     `;
     this.overlay.innerHTML = html;
-    this.renderTabs(tiers);
-    this.renderLevelsForTier(tiers[this.activeTierIndex]);
+
     this.overlay.querySelector('#btn-back')!.addEventListener('click', () => {
       playClick(); this.callbacks.onBack();
     });
-  }
-
-  private renderTabs(tiers: DifficultyTier[]) {
-    const tabsContainer = this.overlay.querySelector('#tier-tabs')!;
-    let tabsHtml = '';
-    for (let i = 0; i < tiers.length; i++) {
-      const activeClass = i === this.activeTierIndex ? ' tier-tab-active' : '';
-      tabsHtml += `<button class="tier-tab${activeClass}" data-tier="${i}">${tiers[i].name}</button>`;
-    }
-    tabsContainer.innerHTML = tabsHtml;
-    tabsContainer.querySelectorAll('.tier-tab').forEach((btn) => {
+    this.overlay.querySelectorAll('.tier-card').forEach((btn) => {
       btn.addEventListener('click', () => {
         playClick();
-        this.activeTierIndex = parseInt((btn as HTMLElement).dataset.tier!);
-        this.renderTabs(tiers);
-        this.renderLevelsForTier(tiers[this.activeTierIndex]);
+        const i    = parseInt((btn as HTMLElement).dataset.tier!);
+        const tier = getDifficultyTiers(this.currentMode)[i];
+        this.showTierLevels(tier);
       });
     });
   }
 
-  private renderLevelsForTier(tier: DifficultyTier) {
-    const gridContainer = this.overlay.querySelector('#level-grid')!;
-    const allStars      = getAllStars(this.currentMode);
-    let levelsHtml      = '';
+  private showTierLevels(tier: DifficultyTier) {
+    const allStars = getAllStars(this.currentMode);
+    let levelsHtml = '';
     for (let i = tier.startLevel; i <= tier.endLevel; i++) {
-      const stars       = allStars[i] || 0;
-      const isCompleted = stars > 0;
-      const className   = 'level-btn ' + (isCompleted ? 'completed' : 'unlocked');
-      const colorIdx    = (i - 1) % LEVEL_COLORS.length;
-      const style       = !isCompleted
-        ? `background: linear-gradient(135deg, ${LEVEL_COLORS[colorIdx]}, ${this.darkenColor(LEVEL_COLORS[colorIdx], 20)})`
-        : '';
-      const starsText   = isCompleted
-        ? `<div class="level-stars">${'\u2605'.repeat(stars)}${'\u2606'.repeat(3 - stars)}</div>`
+      const isDone   = (allStars[i] || 0) > 0;
+      const colorIdx = (i - 1) % LEVEL_COLORS.length;
+      const style    = !isDone
+        ? `background:linear-gradient(135deg,${LEVEL_COLORS[colorIdx]},${this.darkenColor(LEVEL_COLORS[colorIdx], 20)})`
         : '';
       levelsHtml += `
-        <button class="${className}" data-level="${i}" ${style ? `style="${style}"` : ''}>
-          ${i}${starsText}
+        <button class="level-tile${isDone ? ' level-tile-done' : ''}" data-level="${i}" ${style ? `style="${style}"` : ''}>
+          ${i}
         </button>
       `;
     }
-    gridContainer.innerHTML = levelsHtml;
-    gridContainer.querySelectorAll('.level-btn').forEach((btn) => {
+
+    const html = `
+      <div class="level-screen">
+        <button class="back-btn" id="btn-back-tiers">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div class="level-screen-title">${tier.name}</div>
+        <div class="level-tile-grid">${levelsHtml}</div>
+      </div>
+    `;
+    this.overlay.innerHTML = html;
+
+    this.overlay.querySelector('#btn-back-tiers')!.addEventListener('click', () => {
+      playClick(); this.showTierCards();
+    });
+    this.overlay.querySelectorAll('.level-tile').forEach((btn) => {
       btn.addEventListener('click', () => {
         playClick();
         this.callbacks.onSelectLevel(parseInt((btn as HTMLElement).dataset.level!));
@@ -754,9 +777,11 @@ export class ScreenManager {
     levelId: number; progress: number;
     mode: GameMode; remainingUndos: number; maxUndos: number;
   }) {
-    const isThinking   = data.mode === 'thinking';
-    const undoBadge    = isThinking ? `<span class="undo-badge">${data.remainingUndos}</span>` : '';
-    const undoDisabled = data.remainingUndos <= 0 ? ' hud-btn-disabled' : '';
+    const isRelaxing = data.mode === 'relaxing';
+    const restartBtn = !isRelaxing ? `
+          <button class="hud-btn" id="btn-restart">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          </button>` : '';
     const html = `
       <div class="game-hud">
         <div class="hud-left">
@@ -768,13 +793,7 @@ export class ScreenManager {
           <div class="hud-level-label">Seviye ${data.levelId}</div>
         </div>
         <div class="hud-right">
-          <button class="hud-btn hud-btn-undo${undoDisabled}" id="btn-undo">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/></svg>
-            ${undoBadge}
-          </button>
-          <button class="hud-btn" id="btn-restart">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-          </button>
+          ${restartBtn}
           <button class="hud-btn" id="btn-screenshot">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
@@ -785,9 +804,8 @@ export class ScreenManager {
       </div>
     `;
     this.overlay.innerHTML = html;
-    this.overlay.querySelector('#btn-hud-back')!.addEventListener('click',   () => { playClick(); this.callbacks.onBack(); });
-    this.overlay.querySelector('#btn-undo')!.addEventListener('click',       () => { playClick(); this.callbacks.onUndo(); });
-    this.overlay.querySelector('#btn-restart')!.addEventListener('click',    () => { playClick(); this.callbacks.onRestart(); });
+    this.overlay.querySelector('#btn-hud-back')!.addEventListener('click', () => { playClick(); this.callbacks.onBack(); });
+    this.overlay.querySelector('#btn-restart')?.addEventListener('click',  () => { playClick(); this.callbacks.onRestart(); });
     this.overlay.querySelector('#btn-screenshot')!.addEventListener('click', () => { playClick(); this.callbacks.onScreenshot(); });
   }
 

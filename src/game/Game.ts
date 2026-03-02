@@ -71,7 +71,6 @@ export class Game {
           this.startLevel(this.currentLevel.data.id);
         }
       },
-      onUndo: () => this.undo(),
       onScreenshot: () => this.takeScreenshot(),
       onShowThemes: () => this.showScreen('themes'),
       onSelectTheme: (theme) => this.applyTheme(theme),

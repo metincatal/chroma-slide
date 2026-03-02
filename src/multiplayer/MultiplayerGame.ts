@@ -100,7 +100,6 @@ export class MultiplayerGame {
         onSelectLevel: () => {},
         onBack:        () => {},
         onRestart:     () => {},
-        onUndo:        () => {},
         onScreenshot:  () => {},
         onShowThemes:  () => {},
         onSelectTheme: (theme: ThemeConfig) => this.renderer.setTheme(theme),

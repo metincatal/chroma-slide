@@ -421,7 +421,8 @@ function generateRelaxingMaze(
   // Dolu dikdortgen bloklar yerlestir (minimum 2x2)
   const innerW = w - 2 * margin;
   const innerH = h - 2 * margin;
-  const density = 0.25 + rng() * 0.15;
+  // Düşük duvar yoğunluğu: oyuncu tıkanmasın, akıcı hareket
+  const density = 0.10 + rng() * 0.10;
   const targetWalls = Math.floor(innerW * innerH * density);
 
   let wallsPlaced = 0;
@@ -486,9 +487,10 @@ function generateRelaxingMaze(
     wallsPlaced += tiles.length;
   }
 
-  // Her PATH karosu en az 2 yonde hareket edebilmeli (cikmaz yok)
+  // Akış modu: her PATH karosu en az 3 yönde hareket edebilmeli
+  // Bu sayede oyuncu neredeyse her durumda alternatif yol bulur
   let fixAttempts = 0;
-  while (fixAttempts < 100) {
+  while (fixAttempts < 200) {
     let fixed = false;
     for (let y = margin; y < h - margin; y++) {
       for (let x = margin; x < w - margin; x++) {
@@ -500,8 +502,8 @@ function generateRelaxingMaze(
             moveCount++;
           }
         }
-        if (moveCount < 2) {
-          // Bu karo cikmaz - etrafindaki bir duvari ac
+        if (moveCount < 3) {
+          // Bu karo kısıtlı - etrafindaki duvarları aç (en fazla 2 tane)
           const wallNeighbors: { x: number; y: number }[] = [];
           for (const { dx, dy } of DIR_VECTORS) {
             const nx = x + dx, ny = y + dy;
@@ -509,7 +511,8 @@ function generateRelaxingMaze(
               wallNeighbors.push({ x: nx, y: ny });
             }
           }
-          if (wallNeighbors.length > 0) {
+          const needed = 3 - moveCount;
+          for (let k = 0; k < Math.min(needed, wallNeighbors.length); k++) {
             const toOpen = wallNeighbors[Math.floor(rng() * wallNeighbors.length)];
             grid[toOpen.y * w + toOpen.x] = PATH;
             fixed = true;
@@ -572,11 +575,11 @@ export function generateMaze(
       } else {
         // Room maze de relaxing icin uygun (acik alan)
         result = generateRoomMaze(rng, w, h, config);
-        // Cikmaz kontrolu yap, varsa duvarlari ac
+        // Akış modu: her karonun en az 3 yönde hareketi olsun
         if (result) {
           let hasDead = true;
           let fixIter = 0;
-          while (hasDead && fixIter < 50) {
+          while (hasDead && fixIter < 100) {
             hasDead = false;
             for (let y = 1; y < h - 1; y++) {
               for (let x = 1; x < w - 1; x++) {
@@ -586,15 +589,17 @@ export function generateMaze(
                   const nx = x + ddx, ny = y + ddy;
                   if (nx >= 0 && nx < w && ny >= 0 && ny < h && result.grid[ny * w + nx] !== WALL) moveCount++;
                 }
-                if (moveCount < 2) {
-                  // Cikmaz - bir duvar ac
-                  for (const { dx: ddx, dy: ddy } of shuffle(DIR_VECTORS, rng)) {
+                if (moveCount < 3) {
+                  // Kısıtlı karo - ihtiyaç duyulan kadar duvar aç
+                  const needed = 3 - moveCount;
+                  const wallDirs = shuffle(DIR_VECTORS, rng).filter(({ dx: ddx, dy: ddy }) => {
                     const nx = x + ddx, ny = y + ddy;
-                    if (nx >= 1 && nx < w - 1 && ny >= 1 && ny < h - 1 && result.grid[ny * w + nx] === WALL) {
-                      result.grid[ny * w + nx] = PATH;
-                      hasDead = true;
-                      break;
-                    }
+                    return nx >= 1 && nx < w - 1 && ny >= 1 && ny < h - 1 && result!.grid[ny * w + nx] === WALL;
+                  });
+                  for (let k = 0; k < Math.min(needed, wallDirs.length); k++) {
+                    const { dx: ddx, dy: ddy } = wallDirs[k];
+                    result.grid[(y + ddy) * w + (x + ddx)] = PATH;
+                    hasDead = true;
                   }
                 }
               }

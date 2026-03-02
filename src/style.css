@@ -136,100 +136,134 @@ html, body {
 }
 
 .level-screen-title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: #6a6058;
-  margin: 20px 0 10px;
+  margin: 20px 0 14px;
+  letter-spacing: 0.3px;
 }
 
-/* Zorluk tab sistemi */
-.tier-tabs {
+/* Tier kart listesi */
+.tier-cards-list {
   display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  max-width: 100%;
-  padding: 4px 8px;
-  margin-bottom: 10px;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.tier-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.tier-tab {
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  border: none;
-  border-radius: 20px;
-  cursor: pointer;
-  background: rgba(0, 0, 0, 0.05);
-  color: #6a6058;
-  white-space: nowrap;
-  transition: background 0.2s, color 0.2s;
-  letter-spacing: 0.5px;
-}
-
-.tier-tab:active {
-  transform: scale(0.95);
-}
-
-.tier-tab-active {
-  background: linear-gradient(135deg, #c4b498, #b8a888);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(180, 164, 136, 0.3);
-}
-
-.level-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
-  max-width: 360px;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
-  padding: 10px;
+  max-width: 380px;
   overflow-y: auto;
-  max-height: calc(100% - 160px);
+  flex: 1;
+  padding-bottom: 12px;
   -webkit-overflow-scrolling: touch;
 }
 
-.level-btn {
+.tier-card {
+  background: rgba(196, 180, 152, 0.12);
+  border: none;
+  border-radius: 18px;
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.tier-card:hover {
+  background: rgba(196, 180, 152, 0.22);
+}
+
+.tier-card:active {
+  transform: scale(0.97);
+}
+
+.tier-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  color: white;
+  font-style: normal;
+}
+
+.tier-card-body {
+  flex: 1;
+  text-align: left;
+  min-width: 0;
+}
+
+.tier-card-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #5a5048;
+  line-height: 1.2;
+}
+
+.tier-card-range {
+  font-size: 12px;
+  color: rgba(106, 96, 88, 0.55);
+  margin-top: 2px;
+}
+
+.tier-card-bar {
+  height: 3px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 2px;
+  margin-top: 7px;
+  overflow: hidden;
+}
+
+.tier-card-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #a8d4b8, #70c090);
+}
+
+.tier-card-chevron {
+  color: rgba(106, 96, 88, 0.3);
+  flex-shrink: 0;
+}
+
+/* Level tile grid (tier içi) */
+.level-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 7px;
+  width: 100%;
+  max-width: 380px;
+  overflow-y: auto;
+  flex: 1;
+  padding-bottom: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.level-tile {
   aspect-ratio: 1;
   border: none;
   border-radius: 10px;
   cursor: pointer;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 700;
-  color: #6a6058;
-  transition: transform 0.15s ease;
-  position: relative;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  transition: transform 0.12s;
 }
 
-.level-btn:active {
-  transform: scale(0.92);
+.level-tile:active {
+  transform: scale(0.88);
 }
 
-.level-btn.unlocked {
-  background: rgba(196, 180, 152, 0.4);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  color: #6a6058;
-}
-
-.level-btn.completed {
-  background: rgba(176, 228, 196, 0.5);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  color: #5a7868;
-}
-
-.level-stars {
-  font-size: 8px;
-  letter-spacing: 1px;
+.level-tile-done {
+  background: rgba(160, 210, 180, 0.35) !important;
+  color: #4a7860;
+  text-shadow: none;
 }
 
 .back-btn {
