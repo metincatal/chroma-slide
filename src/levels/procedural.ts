@@ -25,9 +25,9 @@ const RELAXING_DIFFICULTIES: DifficultyConfig[] = [
   { name: 'Kolay',   gridSize: 9,  minMoves: 4,  maxMoves: 8  },
   { name: 'Orta',    gridSize: 11, minMoves: 6,  maxMoves: 12 },
   { name: 'Zor',     gridSize: 13, minMoves: 8,  maxMoves: 16 },
-  { name: 'Uzman',   gridSize: 15, minMoves: 10, maxMoves: 20 },
-  { name: 'Usta',    gridSize: 17, minMoves: 12, maxMoves: 24 },
-  { name: 'Efsane',  gridSize: 19, minMoves: 14, maxMoves: 28 },
+  { name: 'Uzman',   gridSize: 13, minMoves: 10, maxMoves: 18 },
+  { name: 'Usta',    gridSize: 15, minMoves: 12, maxMoves: 22 },
+  { name: 'Efsane',  gridSize: 15, minMoves: 14, maxMoves: 24 },
 ];
 
 export const LEVELS_PER_MODE = 4000;
