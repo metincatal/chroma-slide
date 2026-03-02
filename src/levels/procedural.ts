@@ -100,8 +100,9 @@ export function getLevelById(levelId: number, mode: GameMode = 'thinking'): Leve
     return level;
   }
 
-  // Fallback: farkli seed dene
-  for (let offset = 1; offset <= 50; offset++) {
+  // Fallback: farkli seed dene (relaxing modda az deneme - zaten hızlı)
+  const fallbackLimit = mode === 'relaxing' ? 10 : 50;
+  for (let offset = 1; offset <= fallbackLimit; offset++) {
     const fallback = generateMaze(levelId + offset * 1000, config, mode);
     if (fallback) {
       fallback.id = levelId;

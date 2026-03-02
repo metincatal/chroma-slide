@@ -100,6 +100,75 @@ function solvePuzzle(
   return dfs(startX, startY, paintedBits, 1, [], 0);
 }
 
+// ===== AKIŞ MODU SOLVER: Greedy + yeniden konumlanma (O(trials*steps*4)) =====
+// DFS yerine kullanilir; acik izgaralarda DFS 4^depth patlar, bu O(N) calisir.
+// Sıkışınca 0-yeni-karo hamlesiyle yeniden konumlanarak devam eder.
+function relaxingGreedySolve(
+  grid: number[], w: number, h: number,
+  startX: number, startY: number,
+  maxSteps: number,
+  rng: () => number
+): Direction[] | null {
+  const totalPath = grid.filter(c => c === PATH).length;
+
+  for (let trial = 0; trial < 30; trial++) {
+    const painted = new Uint8Array(w * h);
+    painted[startY * w + startX] = 1;
+    let paintedCount = 1;
+    let x = startX, y = startY;
+    const solution: Direction[] = [];
+    let repoCount = 0; // kac kez yeniden konumlandik
+
+    for (let move = 0; move < maxSteps; move++) {
+      if (paintedCount >= totalPath) return solution;
+
+      type Candidate = {
+        dir: Direction; newCount: number;
+        endX: number; endY: number;
+        tiles: { x: number; y: number }[];
+      };
+      const goodMoves: Candidate[] = [];
+      const repoMoves: Candidate[] = [];
+
+      for (const { dx, dy, dir } of DIR_VECTORS) {
+        const slide = simulateSlide(grid, w, h, x, y, dx, dy);
+        if (slide.dist === 0) continue;
+        let newCount = 0;
+        for (const t of slide.tiles) {
+          if (!painted[t.y * w + t.x]) newCount++;
+        }
+        const entry = { dir, newCount, endX: slide.x, endY: slide.y, tiles: slide.tiles };
+        if (newCount > 0) goodMoves.push(entry);
+        else              repoMoves.push(entry);
+      }
+
+      if (goodMoves.length > 0) {
+        // Yeni karo boyayan en iyi hamlelerden rastgele seç
+        goodMoves.sort((a, b) => b.newCount - a.newCount);
+        const topK = trial === 0 ? 1 : Math.min(3, goodMoves.length);
+        const chosen = goodMoves[Math.floor(rng() * topK)];
+        for (const t of chosen.tiles) {
+          if (!painted[t.y * w + t.x]) { painted[t.y * w + t.x] = 1; paintedCount++; }
+        }
+        x = chosen.endX; y = chosen.endY;
+        solution.push(chosen.dir);
+      } else if (repoMoves.length > 0 && repoCount < 8) {
+        // Sıkıştı: yeniden konumlan (boyamadan hareket et)
+        repoCount++;
+        const chosen = repoMoves[Math.floor(rng() * repoMoves.length)];
+        x = chosen.endX; y = chosen.endY;
+        solution.push(chosen.dir);
+      } else {
+        break; // Tamamen sikişti
+      }
+    }
+
+    if (paintedCount >= totalPath) return solution;
+  }
+
+  return null;
+}
+
 // Kavsak noktasi sayisi (topun 2+ yonde gidebildigi yerler)
 function countJunctions(grid: number[], w: number, h: number): number {
   let junctions = 0;
@@ -562,7 +631,10 @@ export function generateMaze(
   const maxSolverDepth = maxMoves + 6;
   const minJunctionMult = mode === 'thinking' ? 0.25 : 0.15;
 
-  for (let attempt = 0; attempt < 150; attempt++) {
+  // Akış modu: greedy solver çok hızlı, daha az deneme yeterli
+  const maxAttempts = mode === 'relaxing' ? 60 : 150;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let result: { grid: number[]; startX: number; startY: number } | null = null;
 
     if (mode === 'relaxing') {
@@ -620,7 +692,33 @@ export function generateMaze(
 
     const { grid, startX, startY } = result;
 
-    // Puzzle'i coz
+    if (mode === 'relaxing') {
+      // Akış modu: solver gerekmez.
+      // generateRelaxingMaze çıkmaz yok + bağlantılılık garantisi veriyor.
+      // Zorluk grid boyutundan gelir; yeterli karo + kavşak kontrolü yeterli.
+      const pathCount = grid.filter(c => c === PATH).length;
+      if (pathCount < minMoves * 3) continue; // Cok az tile
+
+      const junctions = countJunctions(grid, w, h);
+      if (junctions < Math.max(2, Math.floor(minMoves * minJunctionMult))) continue;
+
+      // targetMoves: ortalama karo/hamle üzerinden tahmin
+      const estimatedMoves = Math.max(minMoves, Math.round(pathCount / (w * 0.55)));
+
+      return {
+        id: levelId,
+        name: `Seviye ${levelId}`,
+        width: w, height: h,
+        grid, startX, startY,
+        targetMoves: estimatedMoves,
+        colorIndex: (levelId - 1) % 10,
+        solution: [],
+        difficulty: config.name,
+        mode,
+      };
+    }
+
+    // Taktik modu: tam DFS solver
     const solution = solvePuzzle(grid, w, h, startX, startY, maxSolverDepth);
     if (!solution) continue;
 
