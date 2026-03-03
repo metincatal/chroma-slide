@@ -249,14 +249,36 @@ function fixDeadEnds(grid: number[], w: number, h: number, rng: () => number) {
   }
 }
 
+// Omurga cozumunun hala gecerli olup olmadigini dogrula
+function verifyBackbone(
+  grid: number[], w: number, h: number,
+  sx: number, sy: number,
+  solution: Direction[],
+  expectedStops: { x: number; y: number }[]
+): boolean {
+  let vx = sx, vy = sy;
+  for (let i = 0; i < solution.length; i++) {
+    const d = DIR_VECTORS.find(v => v.dir === solution[i])!;
+    const slide = simulateSlide(grid, w, h, vx, vy, d.dx, d.dy);
+    if (slide.x !== expectedStops[i + 1].x || slide.y !== expectedStops[i + 1].y) {
+      return false;
+    }
+    vx = slide.x; vy = slide.y;
+  }
+  return true;
+}
+
 // ===== AKIS MODU: Yapici (Constructive) Labirent Uretimi =====
-// Cozumden labirent insa eder - garanti cozulebilir
+// Cozumden labirent insa eder, dallanma + oda + engel ile zorlugu olcekler
 function generateConstructiveMaze(
   rng: () => number, w: number, h: number, config: DifficultyConfig
 ): { grid: number[]; startX: number; startY: number; solution: Direction[] } | null {
   const grid = new Array(w * h).fill(WALL);
+  // Zorluk faktoru: 0 (Kolay) ~ 1 (Efsane)
+  const diffFactor = Math.min(1, (config.minMoves - 4) / 10);
+  const innerArea = (w - 2) * (h - 2);
 
-  // Baslangic noktasi: kenarlara yakin degilse daha iyi
+  // Baslangic noktasi
   const sx = 2 + Math.floor(rng() * (w - 4));
   const sy = 2 + Math.floor(rng() * (h - 4));
   grid[sy * w + sx] = PATH;
@@ -264,16 +286,17 @@ function generateConstructiveMaze(
   let bx = sx, by = sy;
   const solution: Direction[] = [];
   const targetMoves = config.minMoves + Math.floor(rng() * (config.maxMoves - config.minMoves + 1));
-  // Korunan duvar pozisyonlari: onceki hamlelerin durma noktalarini saglayan duvarlar
   const stoppingWalls = new Set<number>();
 
   let lastDir: Direction | null = null;
   let totalFails = 0;
 
-  for (let move = 0; move < targetMoves; move++) {
-    if (totalFails > 25) break;
+  // === FAZ 1: Omurga koridorlari ===
+  // Zor levellerde omurgaya bonus hamle ekle (daha genis kapsama)
+  const bonusMoves = Math.floor(diffFactor * 6);
+  for (let move = 0; move < targetMoves + bonusMoves; move++) {
+    if (totalFails > 30) break;
 
-    // Yonleri karistir, ters yonu engellemek yerine geriye at
     let dirs = shuffle(DIR_VECTORS, rng);
     if (lastDir) {
       const opp = getOpposite(lastDir);
@@ -284,54 +307,40 @@ function generateConstructiveMaze(
     let moved = false;
 
     for (const { dx, dy, dir } of dirs) {
-      // Koridor uzunlugu: grid boyutuna oranli
       const minLen = 2;
       const maxLen = Math.max(3, Math.floor((w - 2) / 2));
       const carveLen = minLen + Math.floor(rng() * (maxLen - minLen + 1));
 
-      // Yuruyerek kazilacak karolari topla
       const newTiles: { x: number; y: number }[] = [];
       let cx = bx, cy = by;
       let steps = 0;
 
       for (let i = 0; i < carveLen; i++) {
         const nx = cx + dx, ny = cy + dy;
-        // Ic sinirlar icinde kal (dis cerceve duvar)
         if (nx < 1 || nx >= w - 1 || ny < 1 || ny >= h - 1) break;
-
-        const idx = ny * w + nx;
-        // Korunan duvarlari kazma
-        if (stoppingWalls.has(idx)) break;
-
-        if (grid[idx] === WALL) {
+        if (stoppingWalls.has(ny * w + nx)) break;
+        if (grid[ny * w + nx] === WALL) {
           newTiles.push({ x: nx, y: ny });
         }
-        // WALL veya PATH olsun, icinden geciyoruz
         cx = nx; cy = ny;
         steps++;
       }
 
-      // En az 1 adim ve 1 yeni karo gerekli
       if (steps === 0 || newTiles.length === 0) continue;
 
-      // Durma kontrolu: sonraki karo WALL veya sinir olmali
       const beyondX = cx + dx, beyondY = cy + dy;
       if (beyondX >= 0 && beyondX < w && beyondY >= 0 && beyondY < h) {
-        if (grid[beyondY * w + beyondX] !== WALL) continue; // Asim olur
+        if (grid[beyondY * w + beyondX] !== WALL) continue;
       }
 
-      // Karolari kaz
       for (const t of newTiles) grid[t.y * w + t.x] = PATH;
 
-      // Simulasyonla dogrula
       const slide = simulateSlide(grid, w, h, bx, by, dx, dy);
       if (slide.x !== cx || slide.y !== cy) {
-        // Basarisiz - geri al
         for (const t of newTiles) grid[t.y * w + t.x] = WALL;
         continue;
       }
 
-      // Durma duvarini kaydet
       if (beyondX >= 0 && beyondX < w && beyondY >= 0 && beyondY < h) {
         stoppingWalls.add(beyondY * w + beyondX);
       }
@@ -344,14 +353,12 @@ function generateConstructiveMaze(
       break;
     }
 
-    if (!moved) {
-      totalFails++;
-    }
+    if (!moved) totalFails++;
   }
 
   if (solution.length < config.minMoves) return null;
 
-  // Cozumu replay edip beklenen duraklama noktalarini topla
+  // Beklenen duraklama noktalarini topla
   const expectedStops: { x: number; y: number }[] = [{ x: sx, y: sy }];
   {
     let vx = sx, vy = sy;
@@ -364,19 +371,111 @@ function generateConstructiveMaze(
     }
   }
 
-  // === Faz 2: Duraklama noktalarinda oda genisletme ===
-  // Koridorlara gorsel zenginlik katar, cozumu bozmaz
-  const roomCandidates = shuffle([...expectedStops], rng);
-  const roomCount = Math.min(roomCandidates.length, Math.floor(w / 3) + 1);
+  // === FAZ 2: Dal koridorlari (zorlukla orantili) ===
+  // Omurgadan dallanan ekstra koridorlar: oyuncunun kesfetmesi gereken alanlar
+  // Zor levellerde daha fazla dal = daha karmasik ag
+  const branchTarget = Math.max(2, Math.floor(config.minMoves * (0.5 + diffFactor * 0.8)));
 
-  for (let ri = 0; ri < roomCount; ri++) {
-    const center = roomCandidates[ri];
-    const roomRadius = rng() < 0.5 ? 1 : 2;
+  let branchesAdded = 0;
+  for (let attempt = 0; attempt < branchTarget * 8 && branchesAdded < branchTarget; attempt++) {
+    const pathTiles: { x: number; y: number }[] = [];
+    for (let y = 1; y < h - 1; y++)
+      for (let x = 1; x < w - 1; x++)
+        if (grid[y * w + x] === PATH) pathTiles.push({ x, y });
+
+    const startTile = pathTiles[Math.floor(rng() * pathTiles.length)];
+    const dirs = shuffle(DIR_VECTORS, rng);
+
+    for (const { dx, dy } of dirs) {
+      const branchMinLen = 1;
+      const branchMaxLen = Math.max(3, Math.floor((w - 2) / 3) + Math.floor(diffFactor * 4));
+      const branchLen = branchMinLen + Math.floor(rng() * (branchMaxLen - branchMinLen + 1));
+      const newTiles: { x: number; y: number }[] = [];
+      let cx = startTile.x, cy = startTile.y;
+
+      for (let i = 0; i < branchLen; i++) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 1 || nx >= w - 1 || ny < 1 || ny >= h - 1) break;
+        if (stoppingWalls.has(ny * w + nx)) break;
+        if (grid[ny * w + nx] === WALL) {
+          newTiles.push({ x: nx, y: ny });
+        } else {
+          // Mevcut PATH'e carpti - baglanti noktalari iyi
+          break;
+        }
+        cx = nx; cy = ny;
+      }
+
+      if (newTiles.length < 1) continue;
+
+      for (const t of newTiles) grid[t.y * w + t.x] = PATH;
+
+      if (!verifyBackbone(grid, w, h, sx, sy, solution, expectedStops)) {
+        for (const t of newTiles) grid[t.y * w + t.x] = WALL;
+        continue;
+      }
+
+      branchesAdded++;
+      break;
+    }
+  }
+
+  // Dallardan dallanma: ikinci nesil dallar (daha yogun ag)
+  if (diffFactor > 0.3) {
+    const secondBranchTarget = Math.floor(branchesAdded * 0.5);
+    for (let attempt = 0; attempt < secondBranchTarget * 6; attempt++) {
+      if (attempt >= secondBranchTarget * 6) break;
+      const pathTiles2: { x: number; y: number }[] = [];
+      for (let y = 1; y < h - 1; y++)
+        for (let x = 1; x < w - 1; x++)
+          if (grid[y * w + x] === PATH) pathTiles2.push({ x, y });
+      const tile = pathTiles2[Math.floor(rng() * pathTiles2.length)];
+      const dirs2 = shuffle(DIR_VECTORS, rng);
+      for (const { dx, dy } of dirs2) {
+        const len = 1 + Math.floor(rng() * Math.max(2, Math.floor(w / 4)));
+        const nt: { x: number; y: number }[] = [];
+        let cx2 = tile.x, cy2 = tile.y;
+        for (let i = 0; i < len; i++) {
+          const nx = cx2 + dx, ny = cy2 + dy;
+          if (nx < 1 || nx >= w - 1 || ny < 1 || ny >= h - 1) break;
+          if (stoppingWalls.has(ny * w + nx)) break;
+          if (grid[ny * w + nx] === WALL) nt.push({ x: nx, y: ny });
+          else break;
+          cx2 = nx; cy2 = ny;
+        }
+        if (nt.length < 1) continue;
+        for (const t of nt) grid[t.y * w + t.x] = PATH;
+        if (!verifyBackbone(grid, w, h, sx, sy, solution, expectedStops)) {
+          for (const t of nt) grid[t.y * w + t.x] = WALL;
+          continue;
+        }
+        break;
+      }
+    }
+  }
+
+  // === FAZ 3: Oda genisletme (zorlukla orantili) ===
+  // Duraklama + dal noktalarinda odalar ac
+  const allPathForRooms: { x: number; y: number }[] = [];
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++)
+      if (grid[y * w + x] === PATH) allPathForRooms.push({ x, y });
+
+  // Oda merkezleri: omurga durakları + rastgele PATH karolari
+  const roomSampleRate = 0.2 + diffFactor * 0.3; // Zor levellerde daha fazla aday
+  const roomCenters = shuffle([...expectedStops, ...allPathForRooms.filter(() => rng() < roomSampleRate)], rng);
+  // Zorluga gore oda sayisi ve boyutu (agresif artis)
+  const maxRooms = Math.floor(4 + diffFactor * w);
+  const baseRoomRadius = diffFactor < 0.3 ? 1 : diffFactor < 0.5 ? 2 : 3;
+
+  for (let ri = 0; ri < Math.min(roomCenters.length, maxRooms); ri++) {
+    const center = roomCenters[ri];
+    const roomRadius = Math.max(1, baseRoomRadius - Math.floor(rng() * 2));
 
     const roomTiles: { x: number; y: number }[] = [];
     for (let ry = -roomRadius; ry <= roomRadius; ry++) {
       for (let rx = -roomRadius; rx <= roomRadius; rx++) {
-        if (rx === 0 && ry === 0) continue; // Zaten PATH
+        if (rx === 0 && ry === 0) continue;
         const tx = center.x + rx, ty = center.y + ry;
         if (tx < 1 || tx >= w - 1 || ty < 1 || ty >= h - 1) continue;
         if (grid[ty * w + tx] !== WALL) continue;
@@ -387,75 +486,133 @@ function generateConstructiveMaze(
 
     if (roomTiles.length === 0) continue;
 
-    // Gecici olarak kaz
     for (const t of roomTiles) grid[t.y * w + t.x] = PATH;
 
-    // Cozumun hala ayni duraklama noktalarinda durdugundan emin ol
-    let valid = true;
-    let vx = sx, vy = sy;
-    for (let i = 0; i < solution.length; i++) {
-      const d = DIR_VECTORS.find(v => v.dir === solution[i])!;
-      const slide = simulateSlide(grid, w, h, vx, vy, d.dx, d.dy);
-      if (slide.x !== expectedStops[i + 1].x || slide.y !== expectedStops[i + 1].y) {
-        valid = false;
-        break;
-      }
-      vx = slide.x; vy = slide.y;
-    }
-
-    if (!valid) {
-      // Geri al
+    if (!verifyBackbone(grid, w, h, sx, sy, solution, expectedStops)) {
       for (const t of roomTiles) grid[t.y * w + t.x] = WALL;
     }
-    // Gecerse kalir - odalar cozumu bozmaz
   }
 
-  // === Faz 3: Oda genisletme sonrasi baglantilik ve boyama kontrolu ===
-  // Cozumu replay edip boyanan karolari topla
-  let vx2 = sx, vy2 = sy;
-  const painted = new Set<number>();
-  painted.add(vy2 * w + vx2);
+  // === FAZ 4: Ic engeller (zorlukla orantili) ===
+  // Odalar icine kucuk duvar bloklari koyarak kavsak/karar noktasi olustur
+  // Engeller topun durma noktalarini artirarak puzzle'i daha stratejik yapar
+  const obstacleTarget = Math.floor(diffFactor * 12);
 
-  for (const dir of solution) {
-    const d = DIR_VECTORS.find(v => v.dir === dir)!;
-    const slide = simulateSlide(grid, w, h, vx2, vy2, d.dx, d.dy);
-    if (slide.dist === 0) return null;
-    for (const t of slide.tiles) painted.add(t.y * w + t.x);
-    vx2 = slide.x; vy2 = slide.y;
-  }
-
-  // Cozumun boyamadigi PATH karolari var mi kontrol et
-  const totalPathTiles: { x: number; y: number }[] = [];
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (grid[y * w + x] === PATH) totalPathTiles.push({ x, y });
-    }
-  }
-
-  const unpaintedByOriginal = totalPathTiles.filter(t => !painted.has(t.y * w + t.x));
-
-  if (unpaintedByOriginal.length > 0) {
-    // Oda genisletmesi fazladan boyanamadigimiz karolar ekledi
-    // Greedy solver ile tum karolar boyanabilir mi kontrol et
-    const maxSolveSteps = solution.length + 40;
-    const fullSolution = relaxingGreedySolve(grid, w, h, sx, sy, maxSolveSteps, rng);
-
-    if (!fullSolution) {
-      // Boyanamayan karolari duvar yap
-      for (const t of unpaintedByOriginal) {
-        grid[t.y * w + t.x] = WALL;
+  if (obstacleTarget > 0) {
+    const candidates: { x: number; y: number }[] = [];
+    for (let y = 2; y < h - 2; y++) {
+      for (let x = 2; x < w - 2; x++) {
+        if (grid[y * w + x] !== PATH) continue;
+        // Omurga baslangic noktasina cok yakin olmasin
+        if (Math.abs(x - sx) + Math.abs(y - sy) < 2) continue;
+        // PATH komsu sayisi: en az 3 olmali (oda ici, koridor degil)
+        let pathNeighbors = 0;
+        for (const { dx, dy } of DIR_VECTORS) {
+          if (grid[(y + dy) * w + (x + dx)] === PATH) pathNeighbors++;
+        }
+        if (pathNeighbors >= 3) candidates.push({ x, y });
       }
     }
+
+    const shuffledCandidates = shuffle(candidates, rng);
+    let obstaclesPlaced = 0;
+
+    for (const pos of shuffledCandidates) {
+      if (obstaclesPlaced >= obstacleTarget) break;
+
+      // Engel boyutu: 1x1 veya 1x2/2x1
+      const obstacleType = rng();
+      const tilesToWall: { x: number; y: number }[] = [pos];
+
+      if (obstacleType > 0.4) {
+        // 1x2 veya 2x1 blok
+        const extDir = rng() > 0.5 ? { dx: 1, dy: 0 } : { dx: 0, dy: 1 };
+        const ex = pos.x + extDir.dx, ey = pos.y + extDir.dy;
+        if (ex >= 2 && ex < w - 2 && ey >= 2 && ey < h - 2 && grid[ey * w + ex] === PATH) {
+          tilesToWall.push({ x: ex, y: ey });
+        }
+      }
+
+      // Korunan duvarlara dokunma
+      if (tilesToWall.some(t => stoppingWalls.has(t.y * w + t.x))) continue;
+
+      // Engeli yerlestir
+      for (const t of tilesToWall) grid[t.y * w + t.x] = WALL;
+
+      // Omurgayi dogrula
+      if (!verifyBackbone(grid, w, h, sx, sy, solution, expectedStops)) {
+        for (const t of tilesToWall) grid[t.y * w + t.x] = PATH;
+        continue;
+      }
+
+      // Baglantilik kontrolu: tum PATH hala bagli mi?
+      const anyPath = (() => {
+        for (let y = 1; y < h - 1; y++)
+          for (let x = 1; x < w - 1; x++)
+            if (grid[y * w + x] === PATH) return { x, y };
+        return null;
+      })();
+
+      if (anyPath) {
+        let totalPathCount = 0;
+        for (let y = 1; y < h - 1; y++)
+          for (let x = 1; x < w - 1; x++)
+            if (grid[y * w + x] === PATH) totalPathCount++;
+
+        const connected = bfsConnected(grid, w, h, anyPath.x, anyPath.y);
+        if (connected.size < totalPathCount) {
+          // Baglantilik bozuldu - geri al
+          for (const t of tilesToWall) grid[t.y * w + t.x] = PATH;
+          continue;
+        }
+      }
+
+      obstaclesPlaced++;
+    }
   }
 
-  // Son PATH sayisi kontrolu
+  // === FAZ 5: Cozum dogrulama ve kalite kontrolu ===
+  // Greedy solver ile tum PATH karolarini boyayabilen cozum bul
   const pathCount = grid.filter(c => c === PATH).length;
-  if (pathCount < Math.max(config.minMoves * 3, 15)) return null;
+  const minPathCount = Math.max(
+    config.minMoves * 3,
+    Math.floor(innerArea * (0.20 + diffFactor * 0.20))
+  );
+  if (pathCount < minPathCount) return null;
 
-  // Final cozum: tum PATH karolarini boyayan cozum
-  const maxFinalSteps = (config.maxMoves + 1) * 3;
+  // Greedy solver: fazla adim izni (dallar + odalar icin)
+  const maxFinalSteps = Math.max(pathCount, (config.maxMoves + 1) * 3);
   const finalSolution = relaxingGreedySolve(grid, w, h, sx, sy, maxFinalSteps, rng);
-  if (!finalSolution) return null;
+
+  if (!finalSolution) {
+    // Cozum bulunamadi - odalarin ekledigi boyanamaz karolari temizle
+    // Omurga cozumunun boyadigi karolari bul
+    let vx2 = sx, vy2 = sy;
+    const painted = new Set<number>();
+    painted.add(vy2 * w + vx2);
+    for (const dir of solution) {
+      const d = DIR_VECTORS.find(v => v.dir === dir)!;
+      const slide = simulateSlide(grid, w, h, vx2, vy2, d.dx, d.dy);
+      for (const t of slide.tiles) painted.add(t.y * w + t.x);
+      vx2 = slide.x; vy2 = slide.y;
+    }
+    // Boyanamayanlari temizle
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        if (grid[y * w + x] === PATH && !painted.has(y * w + x))
+          grid[y * w + x] = WALL;
+
+    // Tekrar dene
+    const retrySteps = Math.max(pathCount, (config.maxMoves + 1) * 3);
+    const retrySolution = relaxingGreedySolve(grid, w, h, sx, sy, retrySteps, rng);
+    if (!retrySolution) return null;
+    return { grid, startX: sx, startY: sy, solution: retrySolution };
+  }
+
+  // Kavsak kontrolu: zorlukla orantili minimum kavsak
+  const junctions = countJunctions(grid, w, h);
+  const minJunctions = Math.max(2, Math.floor(config.minMoves * (0.3 + diffFactor * 0.3)));
+  if (junctions < minJunctions) return null;
 
   return { grid, startX: sx, startY: sy, solution: finalSolution };
 }
@@ -729,12 +886,19 @@ export function generateMaze(
 
       const { grid, startX, startY, solution: sol } = result;
 
-      // Kalite kontrolleri
+      // Kalite kontrolleri: zorlukla orantili esikler
+      const diffFactor = Math.min(1, (minMoves - 4) / 10);
+      const innerArea = (w - 2) * (h - 2);
       const pathCount = grid.filter(c => c === PATH).length;
-      if (pathCount < Math.max(minMoves * 3, 15)) continue;
+      const minPath = Math.max(
+        minMoves * 3,
+        Math.floor(innerArea * (0.15 + diffFactor * 0.15))
+      );
+      if (pathCount < minPath) continue;
 
       const junctions = countJunctions(grid, w, h);
-      if (junctions < Math.max(2, Math.floor(minMoves * 0.15))) continue;
+      const minJunc = Math.max(2, Math.floor(minMoves * (0.2 + diffFactor * 0.3)));
+      if (junctions < minJunc) continue;
 
       // Affedicilik kontrolu: farkli pozisyonlardan da cozulebilir olmali
       const pathTileList: { x: number; y: number }[] = [];
