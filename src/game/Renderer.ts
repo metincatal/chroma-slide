@@ -28,6 +28,8 @@ export interface RenderPlayer {
   shield: boolean;
   frozen: boolean;
   brush: boolean;
+  // Sıralı oyunda sıranın bu oyuncuda olduğunu gösteren halka
+  turn?: boolean;
 }
 
 export interface RenderCapsule {
@@ -731,6 +733,7 @@ export class Renderer {
 
   // --- Etki halkaları: kalkan (beyaz çift halka), fırça (kesikli halka), donma (buz diski) ---
   private drawEffectRings(ctx: CanvasRenderingContext2D, p: RenderPlayer, color: string, now: number) {
+    if (p.turn) this.drawTurnRing(ctx, p, color, now);
     if (!p.shield && !p.brush && !p.frozen) return;
     const s  = this.cellSize;
     const bx = this.offsetX + (p.ball.displayX + 0.5) * s;
@@ -779,6 +782,24 @@ export class Renderer {
       }
     }
 
+    ctx.restore();
+  }
+
+  // --- Sıra halkası: nabız gibi genişleyip sönen oyuncu rengi ---
+  private drawTurnRing(ctx: CanvasRenderingContext2D, p: RenderPlayer, color: string, now: number) {
+    const s  = this.cellSize;
+    const bx = this.offsetX + (p.ball.displayX + 0.5) * s;
+    const by = this.offsetY + (p.ball.displayY + 0.5) * s;
+    const r  = BALL_RADIUS * (s / 60);
+    const t  = (now % 1400) / 1400;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(bx, by, r * (1.25 + t * 0.9), 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = (1 - t) * 0.85;
+    ctx.lineWidth = Math.max(2, s * 0.06) * (1 - t * 0.5);
+    ctx.stroke();
     ctx.restore();
   }
 

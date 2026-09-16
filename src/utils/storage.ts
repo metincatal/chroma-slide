@@ -234,3 +234,53 @@ export function markTileHintSeen(kind: string): void {
     localStorage.setItem(TILE_HINTS_KEY, JSON.stringify(seen));
   } catch {}
 }
+
+// --- Siralı oyunlar: oyuncunun katildigi oyun kodlari ---
+// Asenkron oyun cihazda saklanan kod listesiyle surdurulur; durum Firebase'den okunur.
+
+const TURN_GAMES_KEY = 'chromaslide_turn_games';
+const TURN_SETTINGS_KEY = 'chromaslide_turn_settings';
+
+export function getTurnGameCodes(): string[] {
+  try {
+    const raw = localStorage.getItem(TURN_GAMES_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+export function addTurnGameCode(code: string): void {
+  try {
+    const list = getTurnGameCodes().filter((c) => c !== code);
+    list.unshift(code);
+    localStorage.setItem(TURN_GAMES_KEY, JSON.stringify(list.slice(0, 30)));
+  } catch {}
+}
+
+export function removeTurnGameCode(code: string): void {
+  try {
+    const list = getTurnGameCodes().filter((c) => c !== code);
+    localStorage.setItem(TURN_GAMES_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+export function getTurnSettingsPref(): { arenaSize: number; movesPerPlayer: number; capture: boolean; collide: boolean } | null {
+  try {
+    const raw = localStorage.getItem(TURN_SETTINGS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+export function saveTurnSettingsPref(s: { arenaSize: number; movesPerPlayer: number; capture: boolean; collide: boolean }): void {
+  try { localStorage.setItem(TURN_SETTINGS_KEY, JSON.stringify(s)); } catch {}
+}
+
+// Gelistirme: ?turnTimeout=10 ile zaman asimini saniye cinsinden kisalt
+export function getDevTurnTimeoutMs(): number | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get('turnTimeout');
+    if (!v) return null;
+    const sec = parseInt(v, 10);
+    return Number.isFinite(sec) && sec >= 1 ? sec * 1000 : null;
+  } catch { return null; }
+}

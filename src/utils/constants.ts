@@ -191,3 +191,19 @@ export const POWER_BRUSH_MS       = 5000;
 export const CAPTURE_MAX_REGION_RATIO = 0.14;
 // Cevreleme kontrolu icin en kucuk bolge (tek karolik bosluklar gurultu yaratir)
 export const CAPTURE_MIN_REGION = 3;
+
+// ===== SIRALI TAKTIK MODU =====
+export interface TurnSettings {
+  arenaId: number;
+  arenaSize: number;       // 11 | 13 | 15
+  movesPerPlayer: number;  // 10 | 15 | 20
+  capture: boolean;        // Alan cevirme
+  collide: boolean;        // Rakip top duvar gibi davranir
+}
+export const TURN_MOVE_OPTIONS = [10, 15, 20] as const;
+export const TURN_DEFAULT_SETTINGS: Omit<TurnSettings, 'arenaId'> = {
+  arenaSize: 11, movesPerPlayer: 15, capture: true, collide: true,
+};
+// Sirasi gelen oyuncu bu sure boyunca oynamazsa digerleri sirasini gecebilir
+export const TURN_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+export const TURN_MAX_PLAYERS = 4;

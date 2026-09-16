@@ -594,6 +594,10 @@ export class ScreenManager {
           <span class="online-dot"></span>
           <span id="online-count-text">...</span>
         </div>
+        <button class="turn-menu-badge" id="turn-menu-badge">
+          <span class="turn-menu-badge-dot"></span>
+          <span id="turn-menu-badge-text"></span>
+        </button>
         <div class="menu-modes">
           <button class="btn btn-mode-thinking" id="btn-thinking">
             <svg class="mode-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>
@@ -633,6 +637,13 @@ export class ScreenManager {
         document.dispatchEvent(new CustomEvent('chroma:startMultiplayer'));
       }
     });
+    this.overlay.querySelector('#turn-menu-badge')!.addEventListener('click', () => {
+      resumeAudio(); playClick();
+      document.dispatchEvent(new CustomEvent('chroma:openTurnBadge'));
+    });
+
+    // Menü her çizildiğinde dinamik alanlar (çevrimiçi sayısı, sıra rozeti) yeniden doldurulsun
+    document.dispatchEvent(new CustomEvent('chroma:menuShown'));
   }
 
   // -------------------------------------------------------
@@ -890,6 +901,16 @@ export class ScreenManager {
             </button>
           </div>
 
+          <button class="turn-lobby-entry" id="btn-turn-entry">
+            <span class="turn-lobby-entry-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            </span>
+            <span>
+              <div class="turn-lobby-entry-title">Sıralı Oyun</div>
+              <div class="turn-lobby-entry-sub">Sırayla hamle yap, aynı anda çevrimiçi olmanız gerekmez</div>
+            </span>
+          </button>
+
           <div class="mp-lobby-actions">
             <div class="mp-action-panel">
               <div class="mp-panel-label">Yeni Oda</div>
@@ -935,6 +956,10 @@ export class ScreenManager {
 
     this.overlay.querySelector('#btn-mp-change-name')?.addEventListener('click', () => {
       playClick(); this.callbacks.onMpChangeName?.();
+    });
+    this.overlay.querySelector('#btn-turn-entry')?.addEventListener('click', () => {
+      playClick();
+      document.dispatchEvent(new CustomEvent('chroma:startTurnGame', { detail: { from: 'lobby' } }));
     });
     this.overlay.querySelector('#btn-create-room')!.addEventListener('click', () => {
       playClick(); this.callbacks.onMpCreateRoom?.(this.selectedVisibility);
