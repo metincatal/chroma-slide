@@ -207,3 +207,19 @@ export const TURN_DEFAULT_SETTINGS: Omit<TurnSettings, 'arenaId'> = {
 // Sirasi gelen oyuncu bu sure boyunca oynamazsa digerleri sirasini gecebilir
 export const TURN_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 export const TURN_MAX_PLAYERS = 4;
+
+// ===== ESKI OYUN TEMIZLIGI =====
+// Sunucu tarafi kod olmadigi icin temizligi uygulamayi acan istemciler yapar.
+// Her silme, veriyi islem (transaction) icinde yeniden okuyup kurali tekrar
+// dogruladiktan sonra gerceklesir; dizin eski kalsa bile aktif oyun silinmez.
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+export const GC_TURN_FINISHED_MS = 7 * DAY;   // Biten sirali oyun
+export const GC_TURN_WAITING_MS  = 7 * DAY;   // Hic baslamamis sirali oyun
+export const GC_TURN_PLAYING_MS  = 30 * DAY;  // Kimsenin dokunmadigi devam eden oyun
+export const GC_ARENA_IDLE_MS    = 6 * HOUR;  // Kimsenin bagli olmadigi arena odasi
+export const GC_ARENA_HARD_MS    = 3 * DAY;   // Arena odasi icin mutlak ust sinir
+export const GC_RUN_INTERVAL_MS      = 6 * HOUR;   // Bir cihazin temizlik sikligi
+export const GC_BACKFILL_INTERVAL_MS = DAY;        // Dizinde olmayan kayitlari tarama sikligi
+export const GC_MAX_CHECKS_PER_RUN   = 25;
+export const GC_MAX_BACKFILL_PER_RUN = 50;

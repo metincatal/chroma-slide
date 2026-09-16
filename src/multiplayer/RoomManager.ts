@@ -8,6 +8,7 @@ import {
   onDisconnect,
 } from 'firebase/database';
 import { Direction, MpSettings } from '../utils/constants';
+import { touchGc } from './gcFirebase';
 
 export interface PlayerData {
   name: string;
@@ -167,6 +168,9 @@ export class RoomManager {
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
 
+    // Eski oda temizliği için etkinlik dizini
+    touchGc(this.db, 'arena', code);
+
     // Keşfedilebilir odaları rooms/_index/{code} altında indeksle
     // (rooms/$roomCode kuralı kapsamındadır, ek Firebase kuralı gerekmez)
     if (visibility === 'public' || visibility === 'invite') {
@@ -211,6 +215,8 @@ export class RoomManager {
     onDisconnect(ref(this.db, `rooms/${code}/players/${this.myId}/connected`))
       .set(false);
 
+    touchGc(this.db, 'arena', code);
+
     // rooms/_index playerCount güncelle (varsa)
     try {
       const idxSnap = await get(ref(this.db, `rooms/_index/${code}`));
@@ -253,6 +259,7 @@ export class RoomManager {
       },
       [`joinRequests/${requesterId}`]: null,
     });
+    touchGc(this.db, 'arena', this.roomCode);
   }
 
   async declineRequest(requesterId: string): Promise<void> {
@@ -369,6 +376,7 @@ export class RoomManager {
     // Önceki turdan kalan hamle/tahta verisini temizle
     await set(ref(this.db, `rooms/_live/${this.roomCode}`), null);
     await update(ref(this.db, `rooms/${this.roomCode}`), updates);
+    touchGc(this.db, 'arena', this.roomCode);
     // Oyun başlayınca aktif listeden sil (izin yoksa yoksay)
     await this.removePublicRoom();
   }
@@ -564,6 +572,7 @@ export class RoomManager {
       seats:       null,
       rematch:     null,
     });
+    touchGc(this.db, 'arena', this.roomCode);
   }
 
   // --- Temizlik ---

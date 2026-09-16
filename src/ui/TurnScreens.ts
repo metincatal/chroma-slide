@@ -123,6 +123,7 @@ export class TurnScreens {
             <div class="mp-rooms-list" id="turn-list">
               <div class="mp-rooms-empty">Yükleniyor...</div>
             </div>
+            <div class="turn-retention-note">Biten oyunlar 7 gün, 30 gün kimsenin oynamadığı oyunlar kendiliğinden silinir.</div>
           </div>
         </div>
       </div>

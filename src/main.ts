@@ -3,10 +3,11 @@ import { Game } from './game/Game';
 import { MultiplayerGame } from './multiplayer/MultiplayerGame';
 import { TurnGame } from './multiplayer/TurnGame';
 import { TurnRoom, nextSeatOf } from './multiplayer/TurnRoom';
+import { scheduleCleanup } from './multiplayer/gcFirebase';
 import { db } from './multiplayer/FirebaseConfig';
 import { ref, onValue, set, onDisconnect } from 'firebase/database';
 import { PublicRoomEntry, RoomVisibility } from './multiplayer/RoomManager';
-import { getOrCreatePlayerId, getTurnGameCodes } from './utils/storage';
+import { getOrCreatePlayerId, getTurnGameCodes, removeTurnGameCode } from './utils/storage';
 
 const canvas  = document.getElementById('game-canvas') as HTMLCanvasElement;
 const overlay = document.getElementById('ui-overlay') as HTMLDivElement;
@@ -207,7 +208,9 @@ function startTurnBadge() {
   const room = new TurnRoom(db, myId);
   for (const code of codes) {
     turnBadgeUnsubs.push(room.listen(code, (game) => {
-      const seat = game ? nextSeatOf(game) : -1;
+      // Temizlenmiş oyun: cihazdaki listeden de düş
+      if (!game) { removeTurnGameCode(code); turnBadgeState.delete(code); renderTurnBadge(); return; }
+      const seat = nextSeatOf(game);
       const mine = !!game && game.state === 'playing' && seat >= 0 && game.seatOrder[seat] === myId;
       turnBadgeState.set(code, mine);
       renderTurnBadge();
@@ -257,6 +260,9 @@ window.addEventListener('resize', resize);
 
 // ScreenManager'daki "Çok Oyunculu" butonu bu event'i tetikler
 document.addEventListener('chroma:startMultiplayer', () => startMultiplayer());
+
+// Eski oyun temizliği (cihaz başına 6 saatte bir, açılıştan birkaç saniye sonra)
+scheduleCleanup(db, import.meta.env.VITE_FIREBASE_DATABASE_URL ?? '');
 
 // Bağlantıyla açılış: ?turn=KOD
 const turnParam = new URLSearchParams(window.location.search).get('turn');
