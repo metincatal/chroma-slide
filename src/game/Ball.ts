@@ -1,10 +1,7 @@
-import { DIRECTIONS, Direction, WALL, SLIDE_SPEED } from '../utils/constants';
+import { DIRECTIONS, Direction, SLIDE_SPEED } from '../utils/constants';
+import { computeSlide, SlideOutcome } from './slide';
 
-export interface SlideResult {
-  path: { x: number; y: number }[];
-  finalX: number;
-  finalY: number;
-}
+export type SlideResult = SlideOutcome;
 
 export class Ball {
   x: number;
@@ -23,6 +20,10 @@ export class Ball {
   moveDirY = 0;
   speed = 0; // Normalized 0-1 arasi animasyon hiz orani
 
+  // Kaymanin bittigi andaki yon (ok karolari yonu degistirebilir)
+  endDirX = 0;
+  endDirY = 0;
+
   constructor(startX: number, startY: number) {
     this.x = startX;
     this.y = startY;
@@ -37,23 +38,7 @@ export class Ball {
     height: number
   ): SlideResult | null {
     const dir = DIRECTIONS[direction];
-    const path: { x: number; y: number }[] = [];
-    let cx = this.x;
-    let cy = this.y;
-
-    while (true) {
-      const nx = cx + dir.dx;
-      const ny = cy + dir.dy;
-      if (nx < 0 || nx >= width || ny < 0 || ny >= height) break;
-      if (grid[ny * width + nx] === WALL) break;
-      cx = nx;
-      cy = ny;
-      path.push({ x: cx, y: cy });
-    }
-
-    if (path.length === 0) return null;
-
-    return { path, finalX: cx, finalY: cy };
+    return computeSlide(grid, width, height, this.x, this.y, dir.dx, dir.dy);
   }
 
   startSlide(result: SlideResult) {
@@ -68,6 +53,8 @@ export class Ball {
       this.moveDirX = first.x - this.x;
       this.moveDirY = first.y - this.y;
     }
+    this.endDirX = result.dirX;
+    this.endDirY = result.dirY;
 
     this.x = result.finalX;
     this.y = result.finalY;
@@ -96,6 +83,9 @@ export class Ball {
       const next = this.animPath[stepIndex + 1];
       this.displayX = curr.x + (next.x - curr.x) * stepFrac;
       this.displayY = curr.y + (next.y - curr.y) * stepFrac;
+      // Ok karolari yonu degistirebildigi icin gorsel yonu adim adim guncelle
+      const sdx = next.x - curr.x, sdy = next.y - curr.y;
+      if (sdx !== 0 || sdy !== 0) { this.moveDirX = sdx; this.moveDirY = sdy; }
     } else {
       const last = this.animPath[totalSteps - 1];
       this.displayX = last.x;
@@ -103,8 +93,6 @@ export class Ball {
     }
 
     // Hiz orani: easeOutQuart'in turevi → baslangicta max, sona dogru azalir
-    // Turev: 4*(1-t)^3, normalize edilmis hali (max=1 icin /4 gerekli ama clamp ediyoruz)
-    // Animasyonun buyuk bolumunde yuksek kalir, son %20'de duser
     this.speed = t < 1 ? Math.min(1, Math.pow(1 - t, 2) * 2.5) : 0;
 
     if (t >= 1) {
@@ -112,6 +100,8 @@ export class Ball {
       this.displayX = this.x;
       this.displayY = this.y;
       this.speed = 0;
+      this.moveDirX = this.endDirX;
+      this.moveDirY = this.endDirY;
     }
 
     return paintedTiles;
@@ -132,6 +122,8 @@ export class Ball {
     this.animProgress = 0;
     this.moveDirX = 0;
     this.moveDirY = 0;
+    this.endDirX = 0;
+    this.endDirY = 0;
     this.speed = 0;
   }
 }

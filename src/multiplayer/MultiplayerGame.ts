@@ -5,7 +5,7 @@ import { Input } from '../game/Input';
 import { ScreenManager } from '../ui/ScreenManager';
 import { generateArena, ARENA_COUNT } from '../levels/arena';
 import {
-  Direction, PATH, WALL, PAINT_GRADIENTS,
+  Direction, WALL, PAINT_GRADIENTS,
   MP_URGENT_SECONDS, MP_BOARD_FLUSH_MS, MP_END_GRACE_MS,
   MpSettings, MP_DEFAULT_SETTINGS,
   PowerType, POWER_TYPES, POWER_FIRST_SPAWN_MS, POWER_SPAWN_MIN_MS, POWER_SPAWN_MAX_MS,
@@ -978,7 +978,7 @@ export class MultiplayerGame {
     const w = this.level.data.width;
     const x = idx % w, y = (idx - x) / w;
 
-    const isNewTile = this.level.grid[idx] === PATH;
+    const isNewTile = !this.level.isPaintedIdx(idx);
     const prev = this.ownerSeat[idx];
     if (!isNewTile && prev === seat + 1) return;
     if (prev > 0 && prev !== seat + 1 && this.hasFx(this.seatOrder[prev - 1], 's')) return;
@@ -1317,7 +1317,7 @@ export class MultiplayerGame {
       players:     this.players,
       finalScores: this.computeScores(),
       myId:        this.myPlayerId,
-      totalTiles:  this.level?.totalPathTiles ?? 0,
+      totalTiles:  this.level?.totalPaintable ?? 0,
     });
   }
 

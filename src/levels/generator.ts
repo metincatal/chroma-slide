@@ -1,6 +1,10 @@
-import { WALL, PATH, Direction, GameMode } from '../utils/constants';
+import {
+  WALL, PATH, STOPPER, Direction, GameMode,
+  isPaintable, arrowTileFor, arrowDelta,
+} from '../utils/constants';
+import { computeSlide } from '../game/slide';
 import { LevelData } from './types';
-import { DifficultyConfig } from './procedural';
+import { DifficultyConfig, SpecialCounts } from './procedural';
 
 // Seeded PRNG - mulberry32
 export function mulberry32(seed: number): () => number {
@@ -38,21 +42,15 @@ function getOpposite(dir: Direction): Direction {
   }
 }
 
-// Slide simulasyonu - top durana kadar kaydirir
+// Slide simulasyonu — oyundaki top ile AYNI mantik (src/game/slide.ts).
+// Ikisi ayrisirsa uretici cozulemeyen seviye uretir, bu yuzden tek kaynak kullanilir.
 function simulateSlide(
   grid: number[], w: number, h: number,
   sx: number, sy: number, dx: number, dy: number
 ): { x: number; y: number; dist: number; tiles: { x: number; y: number }[] } {
-  let cx = sx, cy = sy;
-  const tiles: { x: number; y: number }[] = [];
-  while (true) {
-    const nx = cx + dx, ny = cy + dy;
-    if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
-    if (grid[ny * w + nx] === WALL) break;
-    cx = nx; cy = ny;
-    tiles.push({ x: cx, y: cy });
-  }
-  return { x: cx, y: cy, dist: tiles.length, tiles };
+  const out = computeSlide(grid, w, h, sx, sy, dx, dy);
+  if (!out) return { x: sx, y: sy, dist: 0, tiles: [] };
+  return { x: out.finalX, y: out.finalY, dist: out.path.length, tiles: out.path };
 }
 
 // DFS solver: tum PATH karolarini boyayan cozum bul (Taktik modu)
@@ -61,7 +59,7 @@ function solvePuzzle(
   startX: number, startY: number,
   maxDepth: number
 ): Direction[] | null {
-  const totalPath = grid.filter(c => c === PATH).length;
+  const totalPath = grid.filter(isPaintable).length;
 
   function dfs(
     x: number, y: number,
@@ -116,7 +114,7 @@ function relaxingGreedySolve(
   maxSteps: number,
   rng: () => number
 ): Direction[] | null {
-  const totalPath = grid.filter(c => c === PATH).length;
+  const totalPath = grid.filter(isPaintable).length;
 
   for (let trial = 0; trial < 30; trial++) {
     const painted = new Uint8Array(w * h);
@@ -179,7 +177,7 @@ function countJunctions(grid: number[], w: number, h: number): number {
   let junctions = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (grid[y * w + x] !== PATH) continue;
+      if (!isPaintable(grid[y * w + x])) continue;
       let directions = 0;
       for (const { dx, dy } of DIR_VECTORS) {
         const slide = simulateSlide(grid, w, h, x, y, dx, dy);
@@ -203,7 +201,7 @@ function bfsConnected(grid: number[], w: number, h: number, startX: number, star
       const nx = x + dx, ny = y + dy;
       if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
         const nIdx = ny * w + nx;
-        if (grid[nIdx] === PATH && !visited.has(nIdx)) {
+        if (isPaintable(grid[nIdx]) && !visited.has(nIdx)) {
           visited.add(nIdx);
           queue.push(nIdx);
         }
@@ -220,7 +218,7 @@ function fixDeadEnds(grid: number[], w: number, h: number, rng: () => number) {
     let fixed = false;
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
-        if (grid[y * w + x] !== PATH) continue;
+        if (!isPaintable(grid[y * w + x])) continue;
         let moveCount = 0;
         for (const { dx, dy } of DIR_VECTORS) {
           const nx = x + dx, ny = y + dy;
@@ -247,6 +245,97 @@ function fixDeadEnds(grid: number[], w: number, h: number, rng: () => number) {
     if (!fixed) break;
     fixAttempts++;
   }
+}
+
+// ===== OZEL KAROLAR: yon oklari ve durduruculer =====
+// Uretim sonrasi serpilir; gecerlilik solver tarafindan dogrulanir.
+function sprinkleSpecialTiles(
+  grid: number[], w: number, h: number,
+  startX: number, startY: number,
+  counts: SpecialCounts,
+  rng: () => number
+) {
+  const startIdx = startY * w + startX;
+
+  // Aday karolar: duz yol, baslangic degil, kenarda degil
+  const candidates: number[] = [];
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = y * w + x;
+      if (grid[idx] !== PATH || idx === startIdx) continue;
+      candidates.push(idx);
+    }
+  }
+  const pool = shuffle(candidates, rng);
+  const placed: number[] = [];
+
+  // Ayni tur karolar birbirine yapismasin: okların birbirini beslemesi
+  // sonsuz donguye yakin durumlar uretir, durdurucu yiginlari da alani oldurur.
+  const farEnough = (idx: number, minDist: number) => {
+    const x = idx % w, y = Math.floor(idx / w);
+    return placed.every((p) => {
+      const px = p % w, py = Math.floor(p / w);
+      return Math.abs(px - x) + Math.abs(py - y) >= minDist;
+    });
+  };
+
+  // 1) Yon oklari — okun gosterdigi yon acik olmali, yoksa top okta takilir
+  let arrowsLeft = counts.arrows;
+  for (const idx of pool) {
+    if (arrowsLeft <= 0) break;
+    if (!farEnough(idx, 3)) continue;
+
+    const x = idx % w, y = Math.floor(idx / w);
+    const openDirs = DIR_VECTORS.filter(({ dx, dy }) => {
+      const nx = x + dx, ny = y + dy;
+      return nx >= 0 && nx < w && ny >= 0 && ny < h && grid[ny * w + nx] !== WALL;
+    });
+    if (openDirs.length < 2) continue;
+
+    const pick = openDirs[Math.floor(rng() * openDirs.length)];
+    grid[idx] = arrowTileFor(pick.dx, pick.dy);
+    placed.push(idx);
+    arrowsLeft--;
+  }
+
+  // 2) Durdurucular — en az iki yone cikis olan karolara
+  let stoppersLeft = counts.stoppers;
+  for (const idx of pool) {
+    if (stoppersLeft <= 0) break;
+    if (grid[idx] !== PATH) continue;
+    if (!farEnough(idx, 2)) continue;
+
+    const x = idx % w, y = Math.floor(idx / w);
+    let open = 0;
+    for (const { dx, dy } of DIR_VECTORS) {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && nx < w && ny >= 0 && ny < h && grid[ny * w + nx] !== WALL) open++;
+    }
+    if (open < 2) continue;
+
+    grid[idx] = STOPPER;
+    placed.push(idx);
+    stoppersLeft--;
+  }
+}
+
+// Kademeli geri cekilme: denemeler ilerledikce ozel karo sayisi azalir.
+// Boylece zor seviyeler once tam karo ile denenir, cozulemezse sadelesir.
+function scaleSpecials(target: SpecialCounts, attempt: number, maxAttempts: number): SpecialCounts {
+  const t = attempt / maxAttempts;
+  if (t < 0.5)  return target;
+  if (t < 0.8)  return { arrows: Math.floor(target.arrows / 2), stoppers: Math.max(1, Math.floor(target.stoppers / 2)) };
+  return { arrows: 0, stoppers: 0 };
+}
+
+// Seviyede hangi ozel karolar var
+export function describeSpecials(grid: number[]): { arrows: number; stoppers: number } {
+  let arrows = 0, stoppers = 0;
+  for (const t of grid) {
+    if (arrowDelta(t)) arrows++;
+    else if (t === STOPPER) stoppers++;
+  }
+  return { arrows, stoppers };
 }
 
 // Omurga cozumunun hala gecerli olup olmadigini dogrula
@@ -866,7 +955,8 @@ function generateGridMaze(
 export function generateMaze(
   levelId: number,
   config: DifficultyConfig,
-  mode: GameMode = 'thinking'
+  mode: GameMode = 'thinking',
+  specials: SpecialCounts = { arrows: 0, stoppers: 0 }
 ): LevelData | null {
   const seed = mode === 'thinking'
     ? levelId * 7919 + 1337
@@ -884,12 +974,26 @@ export function generateMaze(
       const result = generateConstructiveMaze(rng, w, h, config);
       if (!result) continue;
 
-      const { grid, startX, startY, solution: sol } = result;
+      const { grid, startX, startY } = result;
+
+      // Ozel karolari serp, ardindan cozumu yeniden hesapla.
+      // Son %25 denemede serpme yapilmaz: seviye her halukarda uretilebilsin.
+      const want = scaleSpecials(specials, attempt, maxAttempts);
+      const useSpecials = want.arrows > 0 || want.stoppers > 0;
+      if (useSpecials) {
+        sprinkleSpecialTiles(grid, w, h, startX, startY, want, rng);
+      }
+
+      // Serpme cozumu gecersiz kilabilir; yeni cozumu greedy solver bulur
+      const sol = useSpecials
+        ? relaxingGreedySolve(grid, w, h, startX, startY, result.solution.length + 45, rng)
+        : result.solution;
+      if (!sol) continue;
 
       // Kalite kontrolleri: zorlukla orantili esikler
       const diffFactor = Math.min(1, (minMoves - 4) / 10);
       const innerArea = (w - 2) * (h - 2);
-      const pathCount = grid.filter(c => c === PATH).length;
+      const pathCount = grid.filter(isPaintable).length;
       const minPath = Math.max(
         minMoves * 3,
         Math.floor(innerArea * (0.15 + diffFactor * 0.15))
@@ -904,7 +1008,7 @@ export function generateMaze(
       const pathTileList: { x: number; y: number }[] = [];
       for (let y = 1; y < h - 1; y++)
         for (let x = 1; x < w - 1; x++)
-          if (grid[y * w + x] === PATH) pathTileList.push({ x, y });
+          if (isPaintable(grid[y * w + x])) pathTileList.push({ x, y });
 
       const maxSolveSteps = sol.length + 40;
       let forgivenessPass = 0;
@@ -935,8 +1039,13 @@ export function generateMaze(
   }
 
   // ===== TAKTIK MODU: Mevcut algoritmalar =====
-  const maxSolverDepth = maxMoves + 6;
-  const maxAttempts = 150;
+  // Durdurucu kaymayi keser, ok yolu uzatir: ikisi de cozumu uzatir.
+  // Hamle toleransini karo sayisina gore acmazsak gecerli seviyeler reddedilir.
+  const specialSlack   = specials.stoppers * 2 + specials.arrows;
+  const maxSolverDepth = maxMoves + 6 + specialSlack;
+  // 80 deneme: bunun otesinde klasik ureticiler nadiren basarili olur ve
+  // yapici son care zaten devrede. Yuksek limit sadece donma yaratiyordu.
+  const maxAttempts = 80;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let result: { grid: number[]; startX: number; startY: number } | null = null;
@@ -954,17 +1063,55 @@ export function generateMaze(
 
     const { grid, startX, startY } = result;
 
+    // Ozel karolari solver'dan once serp: gecerliligi solver dogrular.
+    // Kademeli geri cekilme: once tam sayi, sonra yarisi, son %20'de hic.
+    const want = scaleSpecials(specials, attempt, maxAttempts);
+    if (want.arrows > 0 || want.stoppers > 0) {
+      sprinkleSpecialTiles(grid, w, h, startX, startY, want, rng);
+    }
+
     const solution = solvePuzzle(grid, w, h, startX, startY, maxSolverDepth);
     if (!solution) continue;
 
-    if (solution.length < minMoves || solution.length > maxMoves + 4) continue;
+    if (solution.length < minMoves || solution.length > maxMoves + 4 + specialSlack) continue;
 
     const junctions = countJunctions(grid, w, h);
     const minJunctions = Math.max(1, Math.floor(minMoves * 0.25));
     if (junctions < minJunctions) continue;
 
-    const pathCount = grid.filter(c => c === PATH).length;
+    const pathCount = grid.filter(isPaintable).length;
     if (pathCount < solution.length * 1.5) continue;
+
+    return {
+      id: levelId,
+      name: `Seviye ${levelId}`,
+      width: w, height: h,
+      grid, startX, startY,
+      targetMoves: solution.length,
+      colorIndex: (levelId - 1) % 10,
+      solution, difficulty: config.name, mode,
+    };
+  }
+
+  // ===== TAKTIK MODU SON CARE: yapici uretim =====
+  // Klasik ureticiler cozulebilir grid bulamadiginda cagrilan cozumden-insa
+  // yontemi. Garanti cozulebilir oldugu icin cagiran taraftaki pahali
+  // "farkli seed ile bastan dene" dongusune dusmeyi onler.
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const built = generateConstructiveMaze(rng, w, h, config);
+    if (!built) continue;
+
+    const { grid, startX, startY } = built;
+
+    const want = scaleSpecials(specials, attempt, 40);
+    const useSpecials = want.arrows > 0 || want.stoppers > 0;
+    if (useSpecials) sprinkleSpecialTiles(grid, w, h, startX, startY, want, rng);
+
+    const solution = useSpecials
+      ? relaxingGreedySolve(grid, w, h, startX, startY, built.solution.length + 45, rng)
+      : built.solution;
+    if (!solution) continue;
+    if (solution.length < minMoves) continue;
 
     return {
       id: levelId,

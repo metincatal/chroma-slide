@@ -4,7 +4,7 @@ import { Ball } from './Ball';
 import { Level } from './Level';
 import { ScreenManager, Screen } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
-import { getUndoCount } from '../levels/procedural';
+import { getUndoCount, isFirstSpecialLevel } from '../levels/procedural';
 import { Direction, DIRECTIONS, GameMode, LEVEL_COLORS, PAINT_GRADIENTS } from '../utils/constants';
 import { saveProgress, saveTheme, getSelectedTheme, hasSeenOnboarding } from '../utils/storage';
 import { getThemeById, ThemeConfig } from '../utils/themes';
@@ -134,6 +134,12 @@ export class Game {
       remainingUndos: this.remainingUndos,
       maxUndos: this.maxUndos,
     });
+
+    // Yeni karo tipi ilk kez giriyorsa oyuncuya kisa bir aciklama goster
+    const firstSpecial = isFirstSpecialLevel(levelId, this.currentMode);
+    if (firstSpecial) {
+      setTimeout(() => this.screenManager.showTileHint(firstSpecial), 450);
+    }
   }
 
   private handleSwipe(direction: Direction) {
@@ -177,11 +183,12 @@ export class Game {
       return;
     }
 
-    // Undo snapshot: hamle oncesi durumu kaydet
+    // Undo snapshot: bu hamlede YENI boyanacak karolari kaydet.
+    // Zaten boyali olanlari eklemek geri almada onlari da silerdi.
     const newPaintedTiles: { x: number; y: number }[] = [];
     for (const t of result.path) {
       const idx = t.y * this.currentLevel.data.width + t.x;
-      if (this.currentLevel.grid[idx] !== 2) { // PAINTED degil
+      if (!this.currentLevel.isPaintedIdx(idx)) {
         newPaintedTiles.push({ x: t.x, y: t.y });
       }
     }

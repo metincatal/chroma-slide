@@ -1085,6 +1085,37 @@ export class ScreenManager {
     });
   }
 
+  // Yeni karo tipi ilk kez karsimiza cikinca aciklayan kart
+  showTileHint(kind: 'stopper' | 'arrow') {
+    const existing = this.overlay.querySelector('.tile-hint');
+    if (existing) existing.remove();
+
+    const isArrow = kind === 'arrow';
+    const icon = isArrow
+      ? `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="17" y2="12"/><polyline points="12 7 17 12 12 17"/></svg>`
+      : `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>`;
+    const title = isArrow ? 'Yön Karosu' : 'Durdurucu Karo';
+    const text  = isArrow
+      ? 'Top bu karoya girince okun yönüne döner ve kaymaya devam eder.'
+      : 'Top bu karoya girince olduğu yerde durur.';
+
+    const el = document.createElement('div');
+    el.className = 'tile-hint';
+    el.innerHTML = `
+      <div class="tile-hint-icon">${icon}</div>
+      <div class="tile-hint-body">
+        <div class="tile-hint-title">${title}</div>
+        <div class="tile-hint-text">${text}</div>
+      </div>
+    `;
+    this.overlay.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('tile-hint-show'));
+    setTimeout(() => {
+      el.classList.remove('tile-hint-show');
+      setTimeout(() => el.remove(), 300);
+    }, 4200);
+  }
+
   // Kapsül toplandığında oyun ekranında kısa bildirim
   showPowerToast(type: PowerType) {
     const hud = this.overlay.querySelector('.mp-game-hud');

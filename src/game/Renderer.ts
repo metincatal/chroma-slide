@@ -1,10 +1,10 @@
 import { Level } from './Level';
 import { Ball } from './Ball';
 import {
-  WALL, PATH, PAINTED,
+  WALL,
   COLORS, PAINT_GRADIENTS,
   BALL_RADIUS, PAINT_ANIM_DURATION,
-  PowerType,
+  PowerType, STOPPER, arrowDelta,
 } from '../utils/constants';
 import { ThemeConfig } from '../utils/themes';
 
@@ -226,7 +226,10 @@ export class Renderer {
     // Path hucreleri = cukur/oyuk (guclu golge ile derinlik)
     this.drawPathChannels(ctx, grid, gw, gh, s, ox, oy);
 
-    // 6. Board kenar vurgusu (kenar cizgisi)
+    // 6. Ozel karolar: yon oklari ve durduruculari board uzerine isle
+    this.drawSpecialTiles(ctx, grid, gw, gh, s, ox, oy);
+
+    // 7. Board kenar vurgusu (kenar cizgisi)
     ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 1.5;
@@ -234,6 +237,66 @@ export class Renderer {
     ctx.restore();
 
     this.baseLevelId = level.data.id;
+  }
+
+  // --- Ozel karolar: ok (yon degistirici) ve durdurucu ---
+  // Tek tip cizim: ayni koyu renk, ayni cizgi kalinligi, ayni saydamlik
+  private drawSpecialTiles(
+    ctx: CanvasRenderingContext2D,
+    grid: number[], gw: number, gh: number,
+    s: number, ox: number, oy: number
+  ) {
+    const lw = Math.max(2, s * 0.07);
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(106, 96, 88, 0.55)';
+    ctx.fillStyle   = 'rgba(106, 96, 88, 0.55)';
+    ctx.lineWidth   = lw;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const tile = grid[y * gw + x];
+        const cx = ox + (x + 0.5) * s;
+        const cy = oy + (y + 0.5) * s;
+
+        const turn = arrowDelta(tile);
+        if (turn) {
+          const a = Math.atan2(turn.dy, turn.dx);
+          const k = s * 0.22;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(a);
+          // Govde
+          ctx.beginPath();
+          ctx.moveTo(-k, 0);
+          ctx.lineTo(k * 0.35, 0);
+          ctx.stroke();
+          // Uc
+          ctx.beginPath();
+          ctx.moveTo(k * 0.85, 0);
+          ctx.lineTo(k * 0.1, -k * 0.6);
+          ctx.moveTo(k * 0.85, 0);
+          ctx.lineTo(k * 0.1, k * 0.6);
+          ctx.stroke();
+          ctx.restore();
+          continue;
+        }
+
+        if (tile === STOPPER) {
+          const k = s * 0.20;
+          ctx.beginPath();
+          ctx.arc(cx, cy, k, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(cx, cy, k * 0.34, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    ctx.restore();
   }
 
   // Board seklini doldur (dairesel koseli WALL hucreleri)
@@ -446,7 +509,7 @@ export class Renderer {
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
-        if (level.grid[y * gw + x] !== PAINTED) continue;
+        if (!level.isPainted(x, y)) continue;
         const px = this.offsetX + x * s;
         const py = this.offsetY + y * s;
         const animKey = `${x},${y}`;
@@ -551,7 +614,7 @@ export class Renderer {
 
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
-        if (level.grid[y * gw + x] !== PAINTED) continue;
+        if (!level.isPainted(x, y)) continue;
 
         const px       = this.offsetX + x * s;
         const py       = this.offsetY + y * s;

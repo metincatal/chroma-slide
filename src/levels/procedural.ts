@@ -81,6 +81,40 @@ export function getDifficultyForLevel(levelId: number, mode: GameMode = 'thinkin
   }
 }
 
+// ===== OZEL KAROLAR: kademeli tanitim =====
+// Oyuncu once temel kaymayi ogrenir; durdurucu ve ok sonradan girer.
+export interface SpecialCounts {
+  arrows: number;
+  stoppers: number;
+}
+
+export function getSpecialCounts(levelId: number, mode: GameMode): SpecialCounts {
+  if (mode === 'thinking') {
+    if (levelId <= 250)  return { arrows: 0, stoppers: 0 };
+    if (levelId <= 700)  return { arrows: 0, stoppers: 1 + (levelId % 2) };
+    if (levelId <= 1500) return { arrows: 1, stoppers: 1 + (levelId % 3) };
+    if (levelId <= 2500) return { arrows: 1 + (levelId % 2), stoppers: 2 + (levelId % 2) };
+    return { arrows: 2 + (levelId % 2), stoppers: 2 + (levelId % 3) };
+  }
+  // Akis modu: daha seyrek, ok cok daha gec girer
+  if (levelId <= 400)  return { arrows: 0, stoppers: 0 };
+  if (levelId <= 1200) return { arrows: 0, stoppers: 1 };
+  if (levelId <= 2400) return { arrows: 0, stoppers: 1 + (levelId % 2) };
+  return { arrows: 1, stoppers: 1 + (levelId % 2) };
+}
+
+// Ozel karonun ilk kez girdigi seviye (oyuncuya ipucu gostermek icin)
+export function isFirstSpecialLevel(levelId: number, mode: GameMode): 'stopper' | 'arrow' | null {
+  if (mode === 'thinking') {
+    if (levelId === 251) return 'stopper';
+    if (levelId === 701) return 'arrow';
+  } else {
+    if (levelId === 401)  return 'stopper';
+    if (levelId === 2401) return 'arrow';
+  }
+  return null;
+}
+
 // Mod bazli cache: key = "${mode}_${id}"
 const levelCache = new Map<string, LevelData>();
 
@@ -92,18 +126,20 @@ export function getLevelById(levelId: number, mode: GameMode = 'thinking'): Leve
     return levelCache.get(cacheKey)!;
   }
 
-  const config = getDifficultyForLevel(levelId, mode);
-  const level = generateMaze(levelId, config, mode);
+  const config   = getDifficultyForLevel(levelId, mode);
+  const specials = getSpecialCounts(levelId, mode);
+  const level = generateMaze(levelId, config, mode, specials);
 
   if (level) {
     levelCache.set(cacheKey, level);
     return level;
   }
 
-  // Fallback: farkli seed dene (relaxing modda az deneme - zaten hızlı)
-  const fallbackLimit = mode === 'relaxing' ? 10 : 50;
+  // Fallback: farkli seed dene. generateMaze artik yapici uretimle biten
+  // garantili bir son careye sahip, bu yuzden burada az deneme yeterli.
+  const fallbackLimit = 8;
   for (let offset = 1; offset <= fallbackLimit; offset++) {
-    const fallback = generateMaze(levelId + offset * 1000, config, mode);
+    const fallback = generateMaze(levelId + offset * 1000, config, mode, specials);
     if (fallback) {
       fallback.id = levelId;
       fallback.name = `Seviye ${levelId}`;

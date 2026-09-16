@@ -1,7 +1,39 @@
-// Karo tipleri
+// Karo tipleri — grid yalnızca karo tipini tutar, boyama durumu Level.painted içinde
 export const WALL = 0;
 export const PATH = 1;
-export const PAINTED = 2;
+// Yön karoları: top bu karoya girince yönü okun yönüne döner ve kaymaya devam eder
+export const ARROW_UP = 3;
+export const ARROW_RIGHT = 4;
+export const ARROW_DOWN = 5;
+export const ARROW_LEFT = 6;
+// Durdurucu: top bu karoya girince orada durur
+export const STOPPER = 7;
+
+export const ARROW_TILES = [ARROW_UP, ARROW_RIGHT, ARROW_DOWN, ARROW_LEFT] as const;
+
+// Ok karosunun yön vektörü; ok değilse null
+export function arrowDelta(tile: number): { dx: number; dy: number } | null {
+  switch (tile) {
+    case ARROW_UP:    return { dx: 0,  dy: -1 };
+    case ARROW_RIGHT: return { dx: 1,  dy: 0  };
+    case ARROW_DOWN:  return { dx: 0,  dy: 1  };
+    case ARROW_LEFT:  return { dx: -1, dy: 0  };
+    default:          return null;
+  }
+}
+
+// Yön vektöründen ok karosu
+export function arrowTileFor(dx: number, dy: number): number {
+  if (dy < 0) return ARROW_UP;
+  if (dy > 0) return ARROW_DOWN;
+  if (dx < 0) return ARROW_LEFT;
+  return ARROW_RIGHT;
+}
+
+// Duvar olmayan her karo boyanabilir
+export function isPaintable(tile: number): boolean {
+  return tile !== WALL;
+}
 
 // Yön vektörleri
 export const DIRECTIONS = {
