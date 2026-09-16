@@ -4,7 +4,7 @@ import {
   WALL,
   COLORS, PAINT_GRADIENTS,
   BALL_RADIUS, PAINT_ANIM_DURATION,
-  PowerType, STOPPER, arrowDelta,
+  PowerType, STOPPER, arrowDelta, gateColor, poolColor, GATE_COLORS,
 } from '../utils/constants';
 import { ThemeConfig } from '../utils/themes';
 
@@ -292,11 +292,57 @@ export class Renderer {
           ctx.beginPath();
           ctx.arc(cx, cy, k * 0.34, 0, Math.PI * 2);
           ctx.fill();
+          continue;
+        }
+
+        // Renk havuzu: dolu kare — topun rengini bu renge cevirir
+        const pool = poolColor(tile);
+        if (pool) {
+          const k = s * 0.26;
+          ctx.save();
+          ctx.fillStyle = GATE_COLORS[pool];
+          ctx.globalAlpha = 0.85;
+          this.roundRect(ctx, cx - k, cy - k, k * 2, k * 2, s * 0.08);
+          ctx.fill();
+          ctx.restore();
+          continue;
+        }
+
+        // Renk kapisi: ayni renkte bos cerceve — yalnizca o renkteki top gecer
+        const gate = gateColor(tile);
+        if (gate) {
+          const k = s * 0.30;
+          ctx.save();
+          ctx.strokeStyle = GATE_COLORS[gate];
+          ctx.lineWidth = lw;
+          this.roundRect(ctx, cx - k, cy - k, k * 2, k * 2, s * 0.08);
+          ctx.stroke();
+          // Kapi cubuklari
+          ctx.beginPath();
+          ctx.moveTo(cx - k, cy);
+          ctx.lineTo(cx - k * 0.35, cy);
+          ctx.moveTo(cx + k * 0.35, cy);
+          ctx.lineTo(cx + k, cy);
+          ctx.stroke();
+          ctx.restore();
         }
       }
     }
 
     ctx.restore();
+  }
+
+  private roundRect(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number, r: number
+  ) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   // Board seklini doldur (dairesel koseli WALL hucreleri)
@@ -548,6 +594,7 @@ export class Renderer {
 
     // 6. Top
     this.drawBall(ball, trailColor);
+    this.drawBallColorRing(ball, level);
 
     // 7. Carpma efekti
     this.drawImpactEffect(ctx, level);
@@ -957,6 +1004,35 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
     this.trailParticles.length = alive;
+  }
+
+  // Topun tasidigi rengi belli eden halka (renk kapisi olan seviyelerde)
+  private drawBallColorRing(ball: Ball, level: Level) {
+    if (!level.hasColorGates) return;
+    const tint = GATE_COLORS[ball.color];
+    if (!tint) return;
+    const ctx = this.ctx;
+    const s = this.cellSize;
+    const cx = this.offsetX + (ball.displayX + 0.5) * s;
+    const cy = this.offsetY + (ball.displayY + 0.5) * s;
+    const r = BALL_RADIUS * (s / 60);
+
+    const lw = Math.max(2, s * 0.055);
+
+    ctx.save();
+    // Once beyaz kontur: boyali zeminde de halka okunur kalsin
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.32, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = lw * 1.9;
+    ctx.stroke();
+    // Ustune topun tasidigi renk
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.32, 0, Math.PI * 2);
+    ctx.strokeStyle = tint;
+    ctx.lineWidth = lw;
+    ctx.stroke();
+    ctx.restore();
   }
 
   // --- Top: squash & stretch ---

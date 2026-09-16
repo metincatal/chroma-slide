@@ -1,6 +1,9 @@
 import {
   WALL, PATH, STOPPER, Direction, GameMode,
   isPaintable, arrowTileFor, arrowDelta,
+  POOL_1, POOL_2, GATE_1, GATE_2,
+  BALL_COLOR_1, BALL_COLOR_2, BALL_START_COLOR,
+  gateColor, poolColor,
 } from '../utils/constants';
 import { computeSlide } from '../game/slide';
 import { LevelData } from './types';
@@ -46,11 +49,12 @@ function getOpposite(dir: Direction): Direction {
 // Ikisi ayrisirsa uretici cozulemeyen seviye uretir, bu yuzden tek kaynak kullanilir.
 function simulateSlide(
   grid: number[], w: number, h: number,
-  sx: number, sy: number, dx: number, dy: number
-): { x: number; y: number; dist: number; tiles: { x: number; y: number }[] } {
-  const out = computeSlide(grid, w, h, sx, sy, dx, dy);
-  if (!out) return { x: sx, y: sy, dist: 0, tiles: [] };
-  return { x: out.finalX, y: out.finalY, dist: out.path.length, tiles: out.path };
+  sx: number, sy: number, dx: number, dy: number,
+  color: number = BALL_START_COLOR
+): { x: number; y: number; dist: number; color: number; tiles: { x: number; y: number }[] } {
+  const out = computeSlide(grid, w, h, sx, sy, dx, dy, color);
+  if (!out) return { x: sx, y: sy, dist: 0, color, tiles: [] };
+  return { x: out.finalX, y: out.finalY, dist: out.path.length, color: out.finalColor, tiles: out.path };
 }
 
 // DFS solver: tum PATH karolarini boyayan cozum bul (Taktik modu)
@@ -63,6 +67,7 @@ function solvePuzzle(
 
   function dfs(
     x: number, y: number,
+    color: number,
     paintedBits: Uint8Array,
     paintedCount: number,
     moves: Direction[],
@@ -72,7 +77,7 @@ function solvePuzzle(
     if (depth >= maxDepth) return null;
 
     for (const { dx, dy, dir } of DIR_VECTORS) {
-      const slide = simulateSlide(grid, w, h, x, y, dx, dy);
+      const slide = simulateSlide(grid, w, h, x, y, dx, dy, color);
       if (slide.dist === 0) continue;
 
       let newCount = 0;
@@ -92,7 +97,7 @@ function solvePuzzle(
       }
 
       moves.push(dir);
-      const result = dfs(slide.x, slide.y, paintedBits, paintedCount + newCount, moves, depth + 1);
+      const result = dfs(slide.x, slide.y, slide.color, paintedBits, paintedCount + newCount, moves, depth + 1);
       if (result) return result;
       moves.pop();
 
@@ -104,7 +109,9 @@ function solvePuzzle(
 
   const paintedBits = new Uint8Array(w * h);
   paintedBits[startY * w + startX] = 1;
-  return dfs(startX, startY, paintedBits, 1, [], 0);
+  // Baslangic karosu havuzsa top oradan rengini alir
+  const startColor = poolColor(grid[startY * w + startX]) || BALL_START_COLOR;
+  return dfs(startX, startY, startColor, paintedBits, 1, [], 0);
 }
 
 // ===== AKIS MODU SOLVER: Greedy + yeniden konumlanma =====
@@ -121,6 +128,7 @@ function relaxingGreedySolve(
     painted[startY * w + startX] = 1;
     let paintedCount = 1;
     let x = startX, y = startY;
+    let color = poolColor(grid[startY * w + startX]) || BALL_START_COLOR;
     const sol: Direction[] = [];
     let repoCount = 0;
 
@@ -129,20 +137,20 @@ function relaxingGreedySolve(
 
       type Candidate = {
         dir: Direction; newCount: number;
-        endX: number; endY: number;
+        endX: number; endY: number; endColor: number;
         tiles: { x: number; y: number }[];
       };
       const goodMoves: Candidate[] = [];
       const repoMoves: Candidate[] = [];
 
       for (const { dx, dy, dir } of DIR_VECTORS) {
-        const slide = simulateSlide(grid, w, h, x, y, dx, dy);
+        const slide = simulateSlide(grid, w, h, x, y, dx, dy, color);
         if (slide.dist === 0) continue;
         let newCount = 0;
         for (const t of slide.tiles) {
           if (!painted[t.y * w + t.x]) newCount++;
         }
-        const entry = { dir, newCount, endX: slide.x, endY: slide.y, tiles: slide.tiles };
+        const entry = { dir, newCount, endX: slide.x, endY: slide.y, endColor: slide.color, tiles: slide.tiles };
         if (newCount > 0) goodMoves.push(entry);
         else repoMoves.push(entry);
       }
@@ -154,12 +162,12 @@ function relaxingGreedySolve(
         for (const t of chosen.tiles) {
           if (!painted[t.y * w + t.x]) { painted[t.y * w + t.x] = 1; paintedCount++; }
         }
-        x = chosen.endX; y = chosen.endY;
+        x = chosen.endX; y = chosen.endY; color = chosen.endColor;
         sol.push(chosen.dir);
       } else if (repoMoves.length > 0 && repoCount < 15) {
         repoCount++;
         const chosen = repoMoves[Math.floor(rng() * repoMoves.length)];
-        x = chosen.endX; y = chosen.endY;
+        x = chosen.endX; y = chosen.endY; color = chosen.endColor;
         sol.push(chosen.dir);
       } else {
         break;
@@ -324,18 +332,92 @@ function sprinkleSpecialTiles(
 function scaleSpecials(target: SpecialCounts, attempt: number, maxAttempts: number): SpecialCounts {
   const t = attempt / maxAttempts;
   if (t < 0.5)  return target;
-  if (t < 0.8)  return { arrows: Math.floor(target.arrows / 2), stoppers: Math.max(1, Math.floor(target.stoppers / 2)) };
-  return { arrows: 0, stoppers: 0 };
+  if (t < 0.8)  return {
+    arrows:   Math.floor(target.arrows / 2),
+    stoppers: Math.max(1, Math.floor(target.stoppers / 2)),
+    gates:    Math.min(1, target.gates),
+  };
+  return { arrows: 0, stoppers: 0, gates: 0 };
+}
+
+// ===== RENK KAPILARI =====
+// Top renk 1 ile baslar. Kapi yalnizca ayni renkteki topu gecirir, havuz rengi degistirir.
+// Yerlesim kurali: havuzlar baslangica yakin, kapilar uzak. Boylece oyuncu once
+// rengi bulur sonra kapiyi acar; rastgele serpme cozulemez seviye uretiyordu.
+function sprinkleColorGates(
+  grid: number[], w: number, h: number,
+  startX: number, startY: number,
+  gateCount: number,
+  rng: () => number
+): boolean {
+  if (gateCount <= 0) return true;
+
+  type Cell = { idx: number; dist: number };
+  const cells: Cell[] = [];
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = y * w + x;
+      if (grid[idx] !== PATH) continue;
+      if (x === startX && y === startY) continue;
+      cells.push({ idx, dist: Math.abs(x - startX) + Math.abs(y - startY) });
+    }
+  }
+  if (cells.length < gateCount * 3) return false;
+
+  cells.sort((a, b) => a.dist - b.dist);
+  const nearHalf = cells.slice(0, Math.max(2, Math.floor(cells.length / 2)));
+  const farHalf  = cells.slice(Math.floor(cells.length / 2));
+  if (nearHalf.length === 0 || farHalf.length < gateCount) return false;
+
+  const used = new Set<number>();
+  const pickFrom = (list: Cell[]): number | null => {
+    const shuffled = shuffle(list, rng);
+    for (const c of shuffled) {
+      if (used.has(c.idx)) continue;
+      // Karolar birbirine yapismasin
+      const x = c.idx % w, y = Math.floor(c.idx / w);
+      let tooClose = false;
+      for (const u of used) {
+        const ux = u % w, uy = Math.floor(u / w);
+        if (Math.abs(ux - x) + Math.abs(uy - y) < 2) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+      used.add(c.idx);
+      return c.idx;
+    }
+    return null;
+  };
+
+  // Renk 2 havuzu (kapiyi acan) baslangica yakin tarafta
+  const pool2 = pickFrom(nearHalf);
+  if (pool2 === null) return false;
+  grid[pool2] = POOL_2;
+
+  // Renk 1 havuzu: oyuncunun geri donebilmesi icin
+  const pool1 = pickFrom(nearHalf);
+  if (pool1 !== null) grid[pool1] = POOL_1;
+
+  // Kapilar uzak tarafta
+  let placed = 0;
+  for (let i = 0; i < gateCount; i++) {
+    const gate = pickFrom(farHalf);
+    if (gate === null) break;
+    grid[gate] = GATE_2;
+    placed++;
+  }
+  return placed > 0;
 }
 
 // Seviyede hangi ozel karolar var
-export function describeSpecials(grid: number[]): { arrows: number; stoppers: number } {
-  let arrows = 0, stoppers = 0;
+export function describeSpecials(grid: number[]): { arrows: number; stoppers: number; gates: number; pools: number } {
+  let arrows = 0, stoppers = 0, gates = 0, pools = 0;
   for (const t of grid) {
     if (arrowDelta(t)) arrows++;
     else if (t === STOPPER) stoppers++;
+    else if (gateColor(t)) gates++;
+    else if (poolColor(t)) pools++;
   }
-  return { arrows, stoppers };
+  return { arrows, stoppers, gates, pools };
 }
 
 // Omurga cozumunun hala gecerli olup olmadigini dogrula
@@ -956,7 +1038,7 @@ export function generateMaze(
   levelId: number,
   config: DifficultyConfig,
   mode: GameMode = 'thinking',
-  specials: SpecialCounts = { arrows: 0, stoppers: 0 }
+  specials: SpecialCounts = { arrows: 0, stoppers: 0, gates: 0 }
 ): LevelData | null {
   const seed = mode === 'thinking'
     ? levelId * 7919 + 1337
@@ -979,8 +1061,9 @@ export function generateMaze(
       // Ozel karolari serp, ardindan cozumu yeniden hesapla.
       // Son %25 denemede serpme yapilmaz: seviye her halukarda uretilebilsin.
       const want = scaleSpecials(specials, attempt, maxAttempts);
-      const useSpecials = want.arrows > 0 || want.stoppers > 0;
-      if (useSpecials) {
+      const useSpecials = want.arrows > 0 || want.stoppers > 0 || want.gates > 0;
+      if (want.gates > 0) sprinkleColorGates(grid, w, h, startX, startY, want.gates, rng);
+      if (want.arrows > 0 || want.stoppers > 0) {
         sprinkleSpecialTiles(grid, w, h, startX, startY, want, rng);
       }
 
@@ -1041,7 +1124,7 @@ export function generateMaze(
   // ===== TAKTIK MODU: Mevcut algoritmalar =====
   // Durdurucu kaymayi keser, ok yolu uzatir: ikisi de cozumu uzatir.
   // Hamle toleransini karo sayisina gore acmazsak gecerli seviyeler reddedilir.
-  const specialSlack   = specials.stoppers * 2 + specials.arrows;
+  const specialSlack   = specials.stoppers * 2 + specials.arrows + specials.gates * 3;
   const maxSolverDepth = maxMoves + 6 + specialSlack;
   // 80 deneme: bunun otesinde klasik ureticiler nadiren basarili olur ve
   // yapici son care zaten devrede. Yuksek limit sadece donma yaratiyordu.
@@ -1066,6 +1149,7 @@ export function generateMaze(
     // Ozel karolari solver'dan once serp: gecerliligi solver dogrular.
     // Kademeli geri cekilme: once tam sayi, sonra yarisi, son %20'de hic.
     const want = scaleSpecials(specials, attempt, maxAttempts);
+    if (want.gates > 0) sprinkleColorGates(grid, w, h, startX, startY, want.gates, rng);
     if (want.arrows > 0 || want.stoppers > 0) {
       sprinkleSpecialTiles(grid, w, h, startX, startY, want, rng);
     }
@@ -1104,8 +1188,9 @@ export function generateMaze(
     const { grid, startX, startY } = built;
 
     const want = scaleSpecials(specials, attempt, 40);
-    const useSpecials = want.arrows > 0 || want.stoppers > 0;
-    if (useSpecials) sprinkleSpecialTiles(grid, w, h, startX, startY, want, rng);
+    const useSpecials = want.arrows > 0 || want.stoppers > 0 || want.gates > 0;
+    if (want.gates > 0) sprinkleColorGates(grid, w, h, startX, startY, want.gates, rng);
+    if (want.arrows > 0 || want.stoppers > 0) sprinkleSpecialTiles(grid, w, h, startX, startY, want, rng);
 
     const solution = useSpecials
       ? relaxingGreedySolve(grid, w, h, startX, startY, built.solution.length + 45, rng)

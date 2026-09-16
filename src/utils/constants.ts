@@ -9,7 +9,46 @@ export const ARROW_LEFT = 6;
 // Durdurucu: top bu karoya girince orada durur
 export const STOPPER = 7;
 
+// Renk kapilari: top iki renkten birini tasir.
+// Havuz karosu topun rengini degistirir, kapi yalnizca ayni renkteki topu gecirir.
+export const POOL_1 = 8;
+export const POOL_2 = 9;
+export const GATE_1 = 10;
+export const GATE_2 = 11;
+
+// Top renkleri
+export const BALL_COLOR_1 = 1;
+export const BALL_COLOR_2 = 2;
+export const BALL_START_COLOR = BALL_COLOR_1;
+
 export const ARROW_TILES = [ARROW_UP, ARROW_RIGHT, ARROW_DOWN, ARROW_LEFT] as const;
+
+// Havuz karosunun verdigi renk; havuz degilse 0
+export function poolColor(tile: number): number {
+  if (tile === POOL_1) return BALL_COLOR_1;
+  if (tile === POOL_2) return BALL_COLOR_2;
+  return 0;
+}
+
+// Kapinin istedigi renk; kapi degilse 0
+export function gateColor(tile: number): number {
+  if (tile === GATE_1) return BALL_COLOR_1;
+  if (tile === GATE_2) return BALL_COLOR_2;
+  return 0;
+}
+
+// Top bu karoya girebilir mi (kapi rengi tutmuyorsa giremez)
+export function canEnter(tile: number, ballColor: number): boolean {
+  if (tile === WALL) return false;
+  const g = gateColor(tile);
+  return g === 0 || g === ballColor;
+}
+
+// Renk kapisi sistemindeki gorsel renkler — mekanik anlam tasir
+export const GATE_COLORS: Record<number, string> = {
+  [BALL_COLOR_1]: '#e08a5f',
+  [BALL_COLOR_2]: '#5f9fd0',
+};
 
 // Ok karosunun yön vektörü; ok değilse null
 export function arrowDelta(tile: number): { dx: number; dy: number } | null {

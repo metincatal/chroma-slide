@@ -211,3 +211,25 @@ export function saveMpSettings(s: MpSettings): void {
     localStorage.setItem(MP_SETTINGS_KEY, JSON.stringify(s));
   } catch {}
 }
+
+// --- Gosterilmis karo tanitimlari ---
+
+const TILE_HINTS_KEY = 'chromaslide_tile_hints';
+
+export function getSeenTileHints(): string[] {
+  try {
+    const raw = localStorage.getItem(TILE_HINTS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
+export function markTileHintSeen(kind: string): void {
+  try {
+    const seen = getSeenTileHints();
+    if (seen.includes(kind)) return;
+    seen.push(kind);
+    localStorage.setItem(TILE_HINTS_KEY, JSON.stringify(seen));
+  } catch {}
+}

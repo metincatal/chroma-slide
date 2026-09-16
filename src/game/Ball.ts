@@ -1,4 +1,4 @@
-import { DIRECTIONS, Direction, SLIDE_SPEED } from '../utils/constants';
+import { DIRECTIONS, Direction, SLIDE_SPEED, BALL_START_COLOR } from '../utils/constants';
 import { computeSlide, SlideOutcome } from './slide';
 
 export type SlideResult = SlideOutcome;
@@ -24,6 +24,11 @@ export class Ball {
   endDirX = 0;
   endDirY = 0;
 
+  // Topun tasidigi renk (havuz karolari degistirir, kapilar bunu arar)
+  color = BALL_START_COLOR;
+  // Kayma bitince gecerli olacak renk
+  private endColor = BALL_START_COLOR;
+
   constructor(startX: number, startY: number) {
     this.x = startX;
     this.y = startY;
@@ -38,7 +43,7 @@ export class Ball {
     height: number
   ): SlideResult | null {
     const dir = DIRECTIONS[direction];
-    return computeSlide(grid, width, height, this.x, this.y, dir.dx, dir.dy);
+    return computeSlide(grid, width, height, this.x, this.y, dir.dx, dir.dy, this.color);
   }
 
   startSlide(result: SlideResult) {
@@ -55,6 +60,7 @@ export class Ball {
     }
     this.endDirX = result.dirX;
     this.endDirY = result.dirY;
+    this.endColor = result.finalColor;
 
     this.x = result.finalX;
     this.y = result.finalY;
@@ -102,6 +108,7 @@ export class Ball {
       this.speed = 0;
       this.moveDirX = this.endDirX;
       this.moveDirY = this.endDirY;
+      this.color = this.endColor;
     }
 
     return paintedTiles;
@@ -112,7 +119,9 @@ export class Ball {
     return 1 - Math.pow(1 - t, 4);
   }
 
-  reset(startX: number, startY: number) {
+  reset(startX: number, startY: number, color: number = BALL_START_COLOR) {
+    this.color = color;
+    this.endColor = color;
     this.x = startX;
     this.y = startY;
     this.displayX = startX;

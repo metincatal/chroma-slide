@@ -4,15 +4,17 @@ import { Ball } from './Ball';
 import { Level } from './Level';
 import { ScreenManager, Screen } from '../ui/ScreenManager';
 import { getLevelById, getTotalLevels } from '../levels/index';
-import { getUndoCount, isFirstSpecialLevel } from '../levels/procedural';
+import { getUndoCount, tileKindsInLevel } from '../levels/procedural';
 import { Direction, DIRECTIONS, GameMode, LEVEL_COLORS, PAINT_GRADIENTS } from '../utils/constants';
-import { saveProgress, saveTheme, getSelectedTheme, hasSeenOnboarding } from '../utils/storage';
+import { saveProgress, saveTheme, getSelectedTheme, hasSeenOnboarding, getSeenTileHints, markTileHintSeen } from '../utils/storage';
 import { getThemeById, ThemeConfig } from '../utils/themes';
 import { playSlide, playComplete, playBump, resumeAudio } from '../utils/sound';
 
 interface UndoSnapshot {
   ballX: number;
   ballY: number;
+  // Renk kapilari icin: hamle oncesi topun rengi
+  ballColor: number;
   paintedTiles: { x: number; y: number }[];
   moveCount: number;
 }
@@ -135,10 +137,12 @@ export class Game {
       maxUndos: this.maxUndos,
     });
 
-    // Yeni karo tipi ilk kez giriyorsa oyuncuya kisa bir aciklama goster
-    const firstSpecial = isFirstSpecialLevel(levelId, this.currentMode);
-    if (firstSpecial) {
-      setTimeout(() => this.screenManager.showTileHint(firstSpecial), 450);
+    // Seviyede daha once gorulmemis bir karo tipi varsa aciklamasini goster
+    const seen = getSeenTileHints();
+    const fresh = tileKindsInLevel(levelData.grid).find((k) => !seen.includes(k));
+    if (fresh) {
+      markTileHintSeen(fresh);
+      setTimeout(() => this.screenManager.showTileHint(fresh), 450);
     }
   }
 
@@ -196,6 +200,7 @@ export class Game {
     this.undoStack.push({
       ballX: this.ball.x,
       ballY: this.ball.y,
+      ballColor: this.ball.color,
       paintedTiles: newPaintedTiles,
       moveCount: this.moves,
     });
@@ -216,8 +221,8 @@ export class Game {
     const snapshot = this.undoStack.pop()!;
     this.remainingUndos--;
 
-    // Ball pozisyonunu geri al
-    this.ball.reset(snapshot.ballX, snapshot.ballY);
+    // Ball pozisyonunu ve rengini geri al
+    this.ball.reset(snapshot.ballX, snapshot.ballY, snapshot.ballColor);
 
     // Boyanan karolari geri al
     this.currentLevel.unpaintTiles(snapshot.paintedTiles);

@@ -1086,18 +1086,26 @@ export class ScreenManager {
   }
 
   // Yeni karo tipi ilk kez karsimiza cikinca aciklayan kart
-  showTileHint(kind: 'stopper' | 'arrow') {
+  showTileHint(kind: 'stopper' | 'arrow' | 'gate') {
     const existing = this.overlay.querySelector('.tile-hint');
     if (existing) existing.remove();
 
-    const isArrow = kind === 'arrow';
-    const icon = isArrow
-      ? `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="17" y2="12"/><polyline points="12 7 17 12 12 17"/></svg>`
-      : `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>`;
-    const title = isArrow ? 'Yön Karosu' : 'Durdurucu Karo';
-    const text  = isArrow
-      ? 'Top bu karoya girince okun yönüne döner ve kaymaya devam eder.'
-      : 'Top bu karoya girince olduğu yerde durur.';
+    const icons: Record<string, string> = {
+      arrow:   `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="17" y2="12"/><polyline points="12 7 17 12 12 17"/></svg>`,
+      stopper: `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>`,
+      gate:    `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><line x1="4" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="20" y2="12"/></svg>`,
+    };
+    const titles: Record<string, string> = {
+      arrow: 'Yön Karosu', stopper: 'Durdurucu Karo', gate: 'Renk Kapısı',
+    };
+    const texts: Record<string, string> = {
+      arrow:   'Top bu karoya girince okun yönüne döner ve kaymaya devam eder.',
+      stopper: 'Top bu karoya girince olduğu yerde durur.',
+      gate:    'Kapıdan yalnızca aynı renkteki top geçer. Rengini değiştirmek için dolu renk karosuna uğra.',
+    };
+    const icon = icons[kind];
+    const title = titles[kind];
+    const text = texts[kind];
 
     const el = document.createElement('div');
     el.className = 'tile-hint';

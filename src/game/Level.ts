@@ -1,5 +1,5 @@
 import { LevelData } from '../levels/types';
-import { WALL, isPaintable, STAR_THRESHOLDS } from '../utils/constants';
+import { WALL, isPaintable, STAR_THRESHOLDS, gateColor, poolColor } from '../utils/constants';
 
 export class Level {
   data: LevelData;
@@ -8,6 +8,8 @@ export class Level {
   painted: Uint8Array;
   totalPaintable: number;
   paintedCount: number;
+  // Seviyede renk kapisi/havuzu var mi (top renk halkasi yalnizca o zaman cizilir)
+  readonly hasColorGates: boolean;
   // Boya animasyonu bilgisi
   paintAnimations: Map<string, number> = new Map();
   // Boya sirasi takibi (gradient icin)
@@ -20,6 +22,7 @@ export class Level {
     this.painted = new Uint8Array(this.grid.length);
     this.totalPaintable = this.grid.filter(isPaintable).length;
     this.paintedCount = 0;
+    this.hasColorGates = this.grid.some((t) => gateColor(t) !== 0 || poolColor(t) !== 0);
 
     // Başlangıç karosunu boya
     this.paintTile(data.startX, data.startY);

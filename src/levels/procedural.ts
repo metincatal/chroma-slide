@@ -1,5 +1,5 @@
 import { LevelData } from './types';
-import { GameMode } from '../utils/constants';
+import { GameMode, STOPPER, arrowDelta, gateColor, poolColor } from '../utils/constants';
 import { generateMaze } from './generator';
 
 export interface DifficultyConfig {
@@ -86,33 +86,43 @@ export function getDifficultyForLevel(levelId: number, mode: GameMode = 'thinkin
 export interface SpecialCounts {
   arrows: number;
   stoppers: number;
+  gates: number;
 }
 
 export function getSpecialCounts(levelId: number, mode: GameMode): SpecialCounts {
   if (mode === 'thinking') {
-    if (levelId <= 250)  return { arrows: 0, stoppers: 0 };
-    if (levelId <= 700)  return { arrows: 0, stoppers: 1 + (levelId % 2) };
-    if (levelId <= 1500) return { arrows: 1, stoppers: 1 + (levelId % 3) };
-    if (levelId <= 2500) return { arrows: 1 + (levelId % 2), stoppers: 2 + (levelId % 2) };
-    return { arrows: 2 + (levelId % 2), stoppers: 2 + (levelId % 3) };
+    if (levelId <= 250)  return { arrows: 0, stoppers: 0, gates: 0 };
+    if (levelId <= 700)  return { arrows: 0, stoppers: 1 + (levelId % 2), gates: 0 };
+    if (levelId <= 1200) return { arrows: 1, stoppers: 1 + (levelId % 3), gates: 0 };
+    if (levelId <= 1500) return { arrows: 1, stoppers: 1 + (levelId % 3), gates: 1 };
+    if (levelId <= 2500) return { arrows: 1 + (levelId % 2), stoppers: 2 + (levelId % 2), gates: 1 };
+    return { arrows: 2 + (levelId % 2), stoppers: 2 + (levelId % 3), gates: 1 + (levelId % 2) };
   }
-  // Akis modu: daha seyrek, ok cok daha gec girer
-  if (levelId <= 400)  return { arrows: 0, stoppers: 0 };
-  if (levelId <= 1200) return { arrows: 0, stoppers: 1 };
-  if (levelId <= 2400) return { arrows: 0, stoppers: 1 + (levelId % 2) };
-  return { arrows: 1, stoppers: 1 + (levelId % 2) };
+  // Akis modu: daha seyrek, ok ve kapi cok daha gec girer
+  if (levelId <= 400)  return { arrows: 0, stoppers: 0, gates: 0 };
+  if (levelId <= 1200) return { arrows: 0, stoppers: 1, gates: 0 };
+  if (levelId <= 2000) return { arrows: 0, stoppers: 1 + (levelId % 2), gates: 0 };
+  if (levelId <= 2400) return { arrows: 0, stoppers: 1 + (levelId % 2), gates: 1 };
+  return { arrows: 1, stoppers: 1 + (levelId % 2), gates: 1 };
 }
 
-// Ozel karonun ilk kez girdigi seviye (oyuncuya ipucu gostermek icin)
-export function isFirstSpecialLevel(levelId: number, mode: GameMode): 'stopper' | 'arrow' | null {
-  if (mode === 'thinking') {
-    if (levelId === 251) return 'stopper';
-    if (levelId === 701) return 'arrow';
-  } else {
-    if (levelId === 401)  return 'stopper';
-    if (levelId === 2401) return 'arrow';
+export type TileHintKind = 'stopper' | 'arrow' | 'gate';
+
+// Seviyede hangi ozel karo tipleri var. Ipucu sabit seviye numarasina degil
+// karonun gercekten gorundugu ilk seviyeye baglanir: uretici bazen hedeflenen
+// karoyu yerlestiremiyor, o zaman sabit numara yanlis ipucu gosterirdi.
+export function tileKindsInLevel(grid: number[]): TileHintKind[] {
+  const kinds: TileHintKind[] = [];
+  let hasStopper = false, hasArrow = false, hasGate = false;
+  for (const t of grid) {
+    if (t === STOPPER) hasStopper = true;
+    else if (arrowDelta(t)) hasArrow = true;
+    else if (gateColor(t) || poolColor(t)) hasGate = true;
   }
-  return null;
+  if (hasStopper) kinds.push('stopper');
+  if (hasArrow) kinds.push('arrow');
+  if (hasGate) kinds.push('gate');
+  return kinds;
 }
 
 // Mod bazli cache: key = "${mode}_${id}"
