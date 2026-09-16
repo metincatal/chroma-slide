@@ -1,4 +1,4 @@
-import { GameMode } from './constants';
+import { GameMode, MpSettings, MP_DEFAULT_SETTINGS, MP_ARENA_SIZES, MP_DURATIONS } from './constants';
 
 const STORAGE_KEY = 'chromaslide_progress';
 const THEME_KEY = 'chromaslide_theme';
@@ -187,4 +187,27 @@ export function getDevRoundDurationMs(): number | null {
     const sec = parseInt(v, 10);
     return Number.isFinite(sec) && sec >= 5 ? sec * 1000 : null;
   } catch { return null; }
+}
+
+// --- Çok oyunculu oda ayarları (host'un son seçimi) ---
+
+const MP_SETTINGS_KEY = 'chroma_mp_settings';
+
+export function getMpSettings(): MpSettings {
+  const d = { ...MP_DEFAULT_SETTINGS };
+  try {
+    const raw = localStorage.getItem(MP_SETTINGS_KEY);
+    if (!raw) return d;
+    const p = JSON.parse(raw) as Partial<MpSettings>;
+    if ((MP_ARENA_SIZES as readonly number[]).includes(p.arenaSize as number)) d.arenaSize = p.arenaSize as number;
+    if ((MP_DURATIONS as readonly number[]).includes(p.durationSec as number)) d.durationSec = p.durationSec as number;
+    if (typeof p.powerups === 'boolean') d.powerups = p.powerups;
+  } catch {}
+  return d;
+}
+
+export function saveMpSettings(s: MpSettings): void {
+  try {
+    localStorage.setItem(MP_SETTINGS_KEY, JSON.stringify(s));
+  } catch {}
 }

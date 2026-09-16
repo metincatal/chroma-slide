@@ -1,4 +1,4 @@
-import { WALL, PATH } from '../utils/constants';
+import { WALL, PATH, MP_ARENA_SIZES } from '../utils/constants';
 import { LevelData } from './types';
 import { mulberry32 } from './generator';
 
@@ -15,12 +15,6 @@ export interface ArenaStats {
   avgSlide: number;
   deadEnds: number;
   coverage: number;
-}
-
-export function getArenaSize(id: number): number {
-  if (id <= 15) return 11;
-  if (id <= 45) return 13;
-  return 15;
 }
 
 // 90 derece döndür: (x, y) → (n-1-y, x)
@@ -134,11 +128,12 @@ export function getArenaStats(level: LevelData): ArenaStats {
 
 const arenaCache = new Map<number, LevelData>();
 
-export function generateArena(id: number): LevelData {
-  const cached = arenaCache.get(id);
+export function generateArena(id: number, size = 13): LevelData {
+  const n = (MP_ARENA_SIZES as readonly number[]).includes(size) ? size : 13;
+  const cacheKey = n * 10000 + id;
+  const cached = arenaCache.get(cacheKey);
   if (cached) return cached;
 
-  const n = getArenaSize(id);
   const innerArea = (n - 2) * (n - 2);
 
   let chosen: number[] | null = null;
@@ -196,6 +191,6 @@ export function generateArena(id: number): LevelData {
     difficulty: 'Arena',
     mode: 'thinking',
   };
-  arenaCache.set(id, level);
+  arenaCache.set(cacheKey, level);
   return level;
 }

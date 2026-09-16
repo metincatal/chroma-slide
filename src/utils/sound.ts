@@ -149,3 +149,28 @@ export function playTick() {
     osc.stop(ctx.currentTime + 0.07);
   } catch {}
 }
+
+// Kapsül toplama sesi: iki hızlı yükselen nota
+export function playPickup() {
+  try {
+    const ctx = getCtx();
+    [660, 990].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+      const t = ctx.currentTime + i * 0.07;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.14, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
+
+      osc.start(t);
+      osc.stop(t + 0.12);
+    });
+  } catch {}
+}

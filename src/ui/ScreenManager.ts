@@ -1,5 +1,9 @@
 import { getAllStars, markOnboardingSeen } from '../utils/storage';
-import { GameMode, LEVEL_COLORS, PAINT_GRADIENTS, MP_ROUND_DURATION_MS } from '../utils/constants';
+import {
+  GameMode, LEVEL_COLORS, PAINT_GRADIENTS,
+  MpSettings, MP_DEFAULT_SETTINGS, MP_ARENA_SIZES, MP_ARENA_SIZE_NAMES, MP_DURATIONS,
+  PowerType, POWER_NAMES,
+} from '../utils/constants';
 import { THEMES, ThemeConfig } from '../utils/themes';
 import { getSelectedTheme } from '../utils/storage';
 import { getDifficultyTiers, DifficultyTier } from '../levels/procedural';
@@ -37,6 +41,7 @@ interface ScreenCallbacks {
   onMpApproveRequest?:   (requesterId: string) => void;
   onMpDeclineRequest?:   (requesterId: string) => void;
   onMpStartGame?:        (levelId: number) => void;
+  onMpSettingsChange?:   (settings: MpSettings) => void;
   onMpLeave?:            () => void;
   onMpPlayAgain?:        () => void;
   onMpBackToMenu?:       () => void;
@@ -58,6 +63,9 @@ export class ScreenManager {
 
   // Seçili visibility (lobby'de)
   private selectedVisibility: RoomVisibility = 'private';
+
+  // Bekleme odası ayarları (host düzenler, misafir görür)
+  private mpSettings: MpSettings = { ...MP_DEFAULT_SETTINGS };
 
   constructor(
     overlay: HTMLDivElement,
@@ -95,14 +103,16 @@ export class ScreenManager {
           (data?.isHost as boolean)  ?? false,
           (data?.players as Record<string, PlayerData>) ?? {},
           (data?.selectedLevel as number) ?? 1,
-          (data?.totalLevels as number)   ?? this.totalLevels
+          (data?.totalLevels as number)   ?? this.totalLevels,
+          (data?.settings as MpSettings)  ?? { ...MP_DEFAULT_SETTINGS }
         );
         break;
       case 'mp-game':
         this.showMpGame(
           (data?.players as Record<string, PlayerData>) ?? {},
           (data?.myId as string)    ?? '',
-          (data?.roomCode as string) ?? ''
+          (data?.roomCode as string) ?? '',
+          (data?.durationSec as number) ?? MP_DEFAULT_SETTINGS.durationSec
         );
         break;
       case 'mp-results':
@@ -955,11 +965,17 @@ export class ScreenManager {
     isHost: boolean,
     players: Record<string, PlayerData>,
     selectedLevel: number,
-    totalLevels: number
+    totalLevels: number,
+    settings: MpSettings
   ) {
+    this.mpSettings = { ...settings };
     const connectedCount = Object.values(players).filter((p) => p.connected).length;
     const canStart = connectedCount >= 2;
-    const arenaInfo = `${Math.round(MP_ROUND_DURATION_MS / 1000)} saniye · herkes ayrı köşeden · boya çalmak serbest`;
+
+    const seg = (id: string, opts: { v: string; label: string }[], current: string) => `
+      <div class="mp-seg" id="${id}">
+        ${opts.map((o) => `<button class="mp-seg-btn${o.v === current ? ' active' : ''}" data-v="${o.v}">${o.label}</button>`).join('')}
+      </div>`;
 
     const hostControls = isHost ? `
       <div class="mp-waiting-controls">
@@ -971,7 +987,19 @@ export class ScreenManager {
             inputmode="numeric" />
           <button class="mp-picker-btn" id="btn-level-up">+</button>
         </div>
-        <div class="mp-arena-info">${arenaInfo}</div>
+        <div class="mp-setting-row">
+          <span class="mp-setting-label">Boyut</span>
+          ${seg('mp-size-seg', MP_ARENA_SIZES.map((n) => ({ v: String(n), label: MP_ARENA_SIZE_NAMES[n] })), String(settings.arenaSize))}
+        </div>
+        <div class="mp-setting-row">
+          <span class="mp-setting-label">Süre</span>
+          ${seg('mp-dur-seg', MP_DURATIONS.map((n) => ({ v: String(n), label: `${n} sn` })), String(settings.durationSec))}
+        </div>
+        <div class="mp-setting-row">
+          <span class="mp-setting-label">Kapsül</span>
+          ${seg('mp-pow-seg', [{ v: '1', label: 'Açık' }, { v: '0', label: 'Kapalı' }], settings.powerups ? '1' : '0')}
+        </div>
+        <div class="mp-arena-info" id="mp-arena-info">${this.buildArenaInfo(settings)}</div>
         <button class="btn btn-mode-multi mp-full-btn" id="btn-mp-start" ${canStart ? '' : 'disabled'}>
           BAŞLAT
         </button>
@@ -983,7 +1011,7 @@ export class ScreenManager {
         <div class="mp-waiting-dots"><span></span><span></span><span></span></div>
         Host oyunu başlatmayı bekliyor
       </div>
-      <div class="mp-arena-info">${arenaInfo}</div>
+      <div class="mp-arena-info" id="mp-arena-info">${this.buildArenaInfo(settings)}</div>
     `;
 
     const html = `
@@ -1027,6 +1055,27 @@ export class ScreenManager {
       levelInput.addEventListener('change', () => {
         setLevel(getLevel());
       });
+
+      // Ayar segmentleri
+      const bindSeg = (id: string, apply: (v: string) => void) => {
+        const segEl = this.overlay.querySelector(`#${id}`);
+        if (!segEl) return;
+        segEl.querySelectorAll('.mp-seg-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            playClick();
+            segEl.querySelectorAll('.mp-seg-btn').forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            apply((btn as HTMLElement).dataset.v ?? '');
+            const info = this.overlay.querySelector('#mp-arena-info');
+            if (info) info.textContent = this.buildArenaInfo(this.mpSettings);
+            this.callbacks.onMpSettingsChange?.({ ...this.mpSettings });
+          });
+        });
+      };
+      bindSeg('mp-size-seg', (v) => { this.mpSettings.arenaSize   = parseInt(v, 10); });
+      bindSeg('mp-dur-seg',  (v) => { this.mpSettings.durationSec = parseInt(v, 10); });
+      bindSeg('mp-pow-seg',  (v) => { this.mpSettings.powerups    = v === '1'; });
+
       this.overlay.querySelector('#btn-mp-start')!.addEventListener('click', () => {
         playClick(); this.callbacks.onMpStartGame?.(getLevel());
       });
@@ -1036,17 +1085,49 @@ export class ScreenManager {
     });
   }
 
+  // Kapsül toplandığında oyun ekranında kısa bildirim
+  showPowerToast(type: PowerType) {
+    const hud = this.overlay.querySelector('.mp-game-hud');
+    if (!hud) return;
+    const existing = hud.querySelector('.mp-power-toast');
+    if (existing) existing.remove();
+
+    const el = document.createElement('div');
+    el.className = 'mp-power-toast';
+    el.textContent = POWER_NAMES[type] ?? '';
+    hud.appendChild(el);
+
+    requestAnimationFrame(() => el.classList.add('mp-power-toast-show'));
+    setTimeout(() => {
+      el.classList.remove('mp-power-toast-show');
+      setTimeout(() => el.remove(), 250);
+    }, 1100);
+  }
+
+  // Misafir: host ayar değiştirince bilgi satırını güncelle
+  updateMpSettings(settings: MpSettings) {
+    this.mpSettings = { ...settings };
+    const info = this.overlay.querySelector('#mp-arena-info');
+    if (info) info.textContent = this.buildArenaInfo(settings);
+  }
+
+  private buildArenaInfo(s: MpSettings): string {
+    const size = MP_ARENA_SIZE_NAMES[s.arenaSize] ?? 'Orta';
+    return `${size} arena · ${s.durationSec} sn · kapsül ${s.powerups ? 'açık' : 'kapalı'} · boya çalmak serbest`;
+  }
+
   private showMpGame(
     players: Record<string, PlayerData>,
     myId: string,
-    roomCode: string
+    roomCode: string,
+    durationSec: number
   ) {
     const scores: Record<string, number> = {};
     for (const pid of Object.keys(players)) scores[pid] = 0;
 
     const html = `
       <div class="mp-game-hud">
-        <div class="mp-timer" id="mp-timer">${Math.round(MP_ROUND_DURATION_MS / 1000)}</div>
+        <div class="mp-timer" id="mp-timer">${durationSec}</div>
         <div class="mp-scores" id="mp-scores">
           ${this.buildScoreChipsHtml(players, scores, myId)}
         </div>

@@ -7,7 +7,7 @@ import {
   onValue,
   onDisconnect,
 } from 'firebase/database';
-import { Direction } from '../utils/constants';
+import { Direction, MpSettings } from '../utils/constants';
 
 export interface PlayerData {
   name: string;
@@ -28,6 +28,8 @@ export interface RoomInfo {
   gameEndAt?: number | null;
   // pid → koltuk (köşe) indeksi; host oyun başlarken yazar
   seats?: Record<string, number>;
+  // Host'un seçtiği oda ayarları (bekleme odasında canlı güncellenir)
+  settings?: MpSettings;
   visibility?: RoomVisibility;
 }
 
@@ -50,10 +52,19 @@ export interface RematchData {
   accepted?: Record<string, boolean>;
 }
 
+// Oyuncu üzerindeki süreli etkiler (sunucu saati, ms): s kalkan, f donma, b geniş fırça
+export interface PlayerFx {
+  s?: number;
+  f?: number;
+  b?: number;
+}
+
 // Host'un yayınladığı tahta anlık görüntüsü
 export interface BoardSync {
   board: string;                    // hücre başına '0' (boş) veya koltuk+1
   applied: Record<string, number>;  // pid → host'un uyguladığı son hamle seq'i
+  caps?: [number, string][];        // haritadaki kapsüller: [hücre idx, tip]
+  fx?: Record<string, PlayerFx>;    // pid → etkiler
 }
 
 // Veri yerleşimi:
@@ -121,7 +132,8 @@ export class RoomManager {
   async createRoom(
     name: string,
     colorIndex: number,
-    visibility: RoomVisibility = 'private'
+    visibility: RoomVisibility = 'private',
+    settings?: MpSettings
   ): Promise<string> {
     let code = '';
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -141,6 +153,7 @@ export class RoomManager {
       createdAt:   Date.now(),
       gameStartAt: null,
       visibility,
+      ...(settings ? { settings } : {}),
     });
 
     await set(ref(this.db, `rooms/${code}/players/${this.myId}`), {
@@ -322,6 +335,12 @@ export class RoomManager {
     } catch (e) { console.warn('republishRoom hatası:', e); }
   }
 
+  // Host: bekleme odasında ayar değişince yaz (misafirler görür)
+  async updateSettings(settings: MpSettings): Promise<void> {
+    if (!this.roomCode) return;
+    await update(ref(this.db, `rooms/${this.roomCode}`), { settings });
+  }
+
   // --- Oyun başlatma (atomik) ---
   // seats: pid → köşe; colorFixes: aynı rengi seçen oyunculara yeni renk
 
@@ -329,6 +348,7 @@ export class RoomManager {
     levelId: number,
     seats: Record<string, number>,
     colorFixes: Record<string, number>,
+    settings: MpSettings,
     durationMs: number
   ): Promise<void> {
     if (!this.roomCode) throw new Error('Odada değilsiniz');
@@ -340,6 +360,7 @@ export class RoomManager {
       gameStartAt: startAt,
       gameEndAt:   startAt + durationMs,
       seats,
+      settings,
     };
     for (const [pid, ci] of Object.entries(colorFixes)) {
       updates[`players/${pid}/colorIndex`] = ci;
@@ -361,9 +382,9 @@ export class RoomManager {
 
   // --- Tahta senkronu (sadece host yazar) ---
 
-  async writeBoard(board: string, applied: Record<string, number>): Promise<void> {
+  async writeBoard(sync: BoardSync): Promise<void> {
     if (!this.roomCode) return;
-    await set(this.liveRef('sync'), { board, applied });
+    await set(this.liveRef('sync'), sync);
   }
 
   onBoardChange(callback: (sync: BoardSync) => void): () => void {
@@ -371,7 +392,12 @@ export class RoomManager {
     const unsub = onValue(this.liveRef('sync'), (snap) => {
       const v = snap.val() as Partial<BoardSync> | null;
       if (!v || typeof v.board !== 'string') return;
-      callback({ board: v.board, applied: v.applied ?? {} });
+      callback({
+        board:   v.board,
+        applied: v.applied ?? {},
+        caps:    Array.isArray(v.caps) ? v.caps : [],
+        fx:      v.fx ?? {},
+      });
     });
     this.unsubscribers.push(unsub);
     return unsub;

@@ -74,7 +74,40 @@ export const STAR_THRESHOLDS = {
 } as const;
 
 // Çok oyunculu arena
-export const MP_ROUND_DURATION_MS = 60000; // Tur süresi
 export const MP_URGENT_SECONDS = 10;       // Kırmızı sayaç eşiği
 export const MP_BOARD_FLUSH_MS = 80;       // Host tahta yayın aralığı
 export const MP_END_GRACE_MS = 700;        // Süre dolunca havadaki hamleler için tolerans
+
+// Çok oyunculu oda ayarları (host seçer)
+export interface MpSettings {
+  arenaSize: number;    // 11 | 13 | 15
+  durationSec: number;  // 45 | 60 | 90 | 120
+  powerups: boolean;    // Güç kapsülleri
+}
+export const MP_ARENA_SIZES = [11, 13, 15] as const;
+export const MP_ARENA_SIZE_NAMES: Record<number, string> = { 11: 'Küçük', 13: 'Orta', 15: 'Büyük' };
+export const MP_DURATIONS = [45, 60, 90, 120] as const;
+export const MP_DEFAULT_SETTINGS: MpSettings = { arenaSize: 13, durationSec: 60, powerups: true };
+
+// Güç kapsülleri
+export type PowerType = 'bomb' | 'brush' | 'shield' | 'freeze';
+export const POWER_TYPES: PowerType[] = ['bomb', 'brush', 'shield', 'freeze'];
+export const POWER_NAMES: Record<PowerType, string> = {
+  bomb: 'Bomba', brush: 'Geniş Fırça', shield: 'Kalkan', freeze: 'Donma',
+};
+export const POWER_FIRST_SPAWN_MS = 3000;   // İlk kapsül
+export const POWER_SPAWN_MIN_MS   = 3000;   // Sonraki kapsüller arası (min)
+export const POWER_SPAWN_MAX_MS   = 5000;   // (max)
+export const POWER_LIFETIME_MS    = 12000;  // Toplanmayan kapsül kaybolur
+// Aynı anda tahtadaki kapsül sayısı arena boyutuna göre ölçeklenir
+export function powerMaxOnBoard(arenaSize: number): number {
+  if (arenaSize <= 11) return 2;
+  if (arenaSize <= 13) return 3;
+  return 4;
+}
+// Yeni kapsülün topların bir kaydırmayla ulaşabileceği hatta doğma olasılığı
+export const POWER_REACHABLE_BIAS = 0.65;
+export const POWER_BOMB_RADIUS    = 1;      // 3x3
+export const POWER_SHIELD_MS      = 6000;
+export const POWER_FREEZE_MS      = 2000;
+export const POWER_BRUSH_MS       = 5000;

@@ -1,4 +1,4 @@
-import { Renderer } from '../game/Renderer';
+import { Renderer, RenderPlayer, RenderCapsule } from '../game/Renderer';
 import { Ball } from '../game/Ball';
 import { Level } from '../game/Level';
 import { Input } from '../game/Input';
@@ -6,13 +6,20 @@ import { ScreenManager } from '../ui/ScreenManager';
 import { generateArena, ARENA_COUNT } from '../levels/arena';
 import {
   Direction, PATH, WALL, PAINT_GRADIENTS,
-  MP_ROUND_DURATION_MS, MP_URGENT_SECONDS, MP_BOARD_FLUSH_MS, MP_END_GRACE_MS,
+  MP_URGENT_SECONDS, MP_BOARD_FLUSH_MS, MP_END_GRACE_MS,
+  MpSettings, MP_DEFAULT_SETTINGS,
+  PowerType, POWER_TYPES, POWER_FIRST_SPAWN_MS, POWER_SPAWN_MIN_MS, POWER_SPAWN_MAX_MS,
+  powerMaxOnBoard, POWER_LIFETIME_MS, POWER_REACHABLE_BIAS,
+  POWER_BOMB_RADIUS, POWER_SHIELD_MS, POWER_FREEZE_MS, POWER_BRUSH_MS,
 } from '../utils/constants';
 import { getThemeById, ThemeConfig } from '../utils/themes';
-import { getSelectedTheme, getMpName, saveMpName, getMpColorIndex, saveMpColorIndex, getOrCreatePlayerId, getDevRoundDurationMs } from '../utils/storage';
-import { playSlide, playBump, playTick, playComplete, resumeAudio } from '../utils/sound';
+import {
+  getSelectedTheme, getMpName, saveMpName, getMpColorIndex, saveMpColorIndex,
+  getOrCreatePlayerId, getDevRoundDurationMs, getMpSettings, saveMpSettings,
+} from '../utils/storage';
+import { playSlide, playBump, playTick, playComplete, playPickup, resumeAudio } from '../utils/sound';
 import { db } from './FirebaseConfig';
-import { RoomManager, PlayerData, RoomInfo, RoomVisibility, RematchData, BoardSync } from './RoomManager';
+import { RoomManager, PlayerData, RoomInfo, RoomVisibility, RematchData, BoardSync, PlayerFx } from './RoomManager';
 import { RemotePlayer } from './RemotePlayer';
 
 // ===== ARENA MODU =====
@@ -41,6 +48,7 @@ export class MultiplayerGame {
   private selectedLevel = 1;
   private roomVisibility: RoomVisibility = 'private';
   private roomHostId = '';
+  private settings: MpSettings = { ...MP_DEFAULT_SETTINGS };
 
   // Oyun durumu
   private level: Level | null = null;
@@ -57,6 +65,12 @@ export class MultiplayerGame {
   private remoteRecordedSeq: Map<string, number> = new Map();
   private boardDirty = false;
   private lastFlushAt = 0;
+
+  // Güç kapsülleri
+  private capsules: Map<number, PowerType> = new Map();   // hücre → tip
+  private capsuleExpiry: Map<number, number> = new Map(); // host: hücre → kaybolma zamanı
+  private fx: Map<string, PlayerFx> = new Map();          // pid → süreli etkiler
+  private nextSpawnAt = 0;                                // host: sonraki kapsül zamanı
   private lastScoreUiAt = 0;
   private lastSync: BoardSync | null = null;
 
@@ -143,9 +157,10 @@ export class MultiplayerGame {
 
         onMpCreateRoom: async (visibility: RoomVisibility = 'private') => {
           this.roomVisibility = visibility;
+          this.settings = getMpSettings();
           try {
             const code = await this.roomManager.createRoom(
-              this.myName, this.myColorIndex, visibility
+              this.myName, this.myColorIndex, visibility, this.settings
             );
             this.roomCode = code;
             this.isHost   = true;
@@ -186,6 +201,13 @@ export class MultiplayerGame {
           }
         },
 
+        // Host: bekleme odasında ayar değişti
+        onMpSettingsChange: (settings: MpSettings) => {
+          this.settings = settings;
+          saveMpSettings(settings);
+          this.roomManager.updateSettings(settings).catch(() => {});
+        },
+
         // Host: oyunu başlat — koltukları dağıt, renk çakışmalarını çöz
         onMpStartGame: async (levelId: number) => {
           const connectedIds = Object.entries(this.players)
@@ -214,7 +236,8 @@ export class MultiplayerGame {
           }
 
           try {
-            await this.roomManager.startGame(levelId, seats, colorFixes, getDevRoundDurationMs() ?? MP_ROUND_DURATION_MS);
+            const durationMs = getDevRoundDurationMs() ?? this.settings.durationSec * 1000;
+            await this.roomManager.startGame(levelId, seats, colorFixes, this.settings, durationMs);
           } catch (e) {
             this.screenManager.showMpError(`Oyun başlatılamadı: ${(e as Error).message}`);
           }
@@ -417,6 +440,7 @@ export class MultiplayerGame {
       players:       {},
       selectedLevel: this.selectedLevel,
       totalLevels:   ARENA_COUNT,
+      settings:      this.settings,
     });
 
     // Host + invite odası: join isteklerini dinle
@@ -478,6 +502,13 @@ export class MultiplayerGame {
       this.selectedLevel = info.levelId;
       if (info.visibility) this.roomVisibility = info.visibility;
       if (info.seats) this.seats = info.seats;
+      if (info.settings) {
+        this.settings = { ...MP_DEFAULT_SETTINGS, ...info.settings };
+        // Misafir: host'un seçtiği ayarları bilgi satırında göster
+        if (!this.isHost && this.roomState === 'waiting') {
+          this.screenManager.updateMpSettings(this.settings);
+        }
+      }
 
       // Host değişimini takip et
       const prevHostId = this.roomHostId;
@@ -499,12 +530,13 @@ export class MultiplayerGame {
 
       if (info.state === 'countdown' && this.gameStartAt === 0) {
         this.gameStartAt = info.gameStartAt ?? this.roomManager.serverNow() + 3000;
-        this.gameEndAt   = info.gameEndAt ?? this.gameStartAt + MP_ROUND_DURATION_MS;
+        this.gameEndAt   = info.gameEndAt ?? this.gameStartAt + this.settings.durationSec * 1000;
         this.seats       = info.seats ?? {};
         this.screenManager.show('mp-game', {
-          players:  this.players,
-          myId:     this.myPlayerId,
-          roomCode: this.roomCode,
+          players:     this.players,
+          myId:        this.myPlayerId,
+          roomCode:    this.roomCode,
+          durationSec: Math.round((this.gameEndAt - this.gameStartAt) / 1000),
         });
         this.startCountdown(this.gameStartAt);
       }
@@ -638,7 +670,7 @@ export class MultiplayerGame {
       return;
     }
 
-    const levelData = generateArena(this.selectedLevel);
+    const levelData = generateArena(this.selectedLevel, this.settings.arenaSize);
     const starts    = levelData.starts ?? [{ x: levelData.startX, y: levelData.startY }];
     const w         = levelData.width;
 
@@ -662,6 +694,12 @@ export class MultiplayerGame {
     this.lastTimerSec    = -1;
     this.boardDirty  = false;
     this.lastFlushAt = 0;
+    this.capsules      = new Map();
+    this.capsuleExpiry = new Map();
+    this.fx            = new Map();
+    this.nextSpawnAt = this.settings.powerups
+      ? this.roomManager.serverNow() + POWER_FIRST_SPAWN_MS
+      : 0;
     this.renderer.invalidateStatic();
 
     const mySeat  = this.seats[this.myPlayerId];
@@ -747,6 +785,180 @@ export class MultiplayerGame {
   // Sahiplik (tahta)
   // -------------------------------------------------------
 
+  // --- Süreli etkiler ---
+
+  private hasFx(pid: string | undefined, key: keyof PlayerFx): boolean {
+    if (!pid) return false;
+    const until = this.fx.get(pid)?.[key] ?? 0;
+    return until > this.roomManager.serverNow();
+  }
+
+  private setFx(pid: string, key: keyof PlayerFx, durationMs: number) {
+    const cur = this.fx.get(pid) ?? {};
+    cur[key] = this.roomManager.serverNow() + durationMs;
+    this.fx.set(pid, cur);
+    this.boardDirty = true;
+  }
+
+  private fxToObject(): Record<string, PlayerFx> {
+    const now = this.roomManager.serverNow();
+    const out: Record<string, PlayerFx> = {};
+    for (const [pid, f] of this.fx) {
+      const live: PlayerFx = {};
+      if ((f.s ?? 0) > now) live.s = f.s;
+      if ((f.f ?? 0) > now) live.f = f.f;
+      if ((f.b ?? 0) > now) live.b = f.b;
+      if (Object.keys(live).length > 0) out[pid] = live;
+    }
+    return out;
+  }
+
+  // --- Kapsüller ---
+
+  // Host: boş bir yol karosuna kapsül koy (topların ve mevcut kapsüllerin uzağında)
+  private spawnCapsule() {
+    if (!this.level) return;
+    const w = this.level.data.width;
+    const h = this.level.data.height;
+
+    const occupied = new Set<number>();
+    const addBall = (b: { x: number; y: number }) => {
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++)
+          occupied.add((b.y + dy) * w + (b.x + dx));
+    };
+    if (this.myBall) addBall(this.myBall);
+    for (const rp of this.remotePlayers.values()) addBall(rp.ball);
+
+    const candidates: number[] = [];
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const idx = y * w + x;
+        if (this.level.grid[idx] === WALL) continue;
+        if (this.capsules.has(idx) || occupied.has(idx)) continue;
+        candidates.push(idx);
+      }
+    }
+    if (candidates.length === 0) return;
+
+    // Çoğunlukla bir kaydırmayla ulaşılabilir hatlara koy: kapsüller boşa gitmesin
+    let pool = candidates;
+    if (Math.random() < POWER_REACHABLE_BIAS) {
+      const reachable = this.reachableCells();
+      const filtered  = candidates.filter((c) => reachable.has(c));
+      if (filtered.length > 0) pool = filtered;
+    }
+
+    const idx  = pool[Math.floor(Math.random() * pool.length)];
+    const type = POWER_TYPES[Math.floor(Math.random() * POWER_TYPES.length)];
+    this.capsules.set(idx, type);
+    this.capsuleExpiry.set(idx, this.roomManager.serverNow() + POWER_LIFETIME_MS);
+    this.boardDirty = true;
+  }
+
+  // Tüm topların tek kaydırmayla geçebileceği hücreler
+  private reachableCells(): Set<number> {
+    const out = new Set<number>();
+    if (!this.level) return out;
+    const w = this.level.data.width;
+    const h = this.level.data.height;
+    const grid = this.level.grid;
+
+    const walk = (bx: number, by: number) => {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        let x = bx, y = by;
+        while (true) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
+          if (grid[ny * w + nx] === WALL) break;
+          x = nx; y = ny;
+          out.add(y * w + x);
+        }
+      }
+    };
+    if (this.myBall) walk(this.myBall.x, this.myBall.y);
+    for (const rp of this.remotePlayers.values()) {
+      if (rp.connected) walk(rp.ball.x, rp.ball.y);
+    }
+    return out;
+  }
+
+  // Topun geçtiği karolarda kapsül var mı; varsa topla
+  private collectCapsules(pid: string, seat: number, cells: number[]) {
+    for (const idx of cells) {
+      const type = this.capsules.get(idx);
+      if (!type) continue;
+      this.capsules.delete(idx);
+      this.capsuleExpiry.delete(idx);
+      this.boardDirty = true;
+      // Kendi topladığım kapsülde ses ve ekran bildirimi
+      if (pid === this.myPlayerId) {
+        playPickup();
+        this.screenManager.showPowerToast(type);
+      }
+      this.applyPower(type, pid, seat, idx);
+    }
+  }
+
+  private applyPower(type: PowerType, pid: string, seat: number, idx: number) {
+    switch (type) {
+      case 'bomb': {
+        if (!this.level) return;
+        const w = this.level.data.width;
+        const x = idx % w, y = (idx - x) / w;
+        const hit: number[] = [];
+        for (let dy = -POWER_BOMB_RADIUS; dy <= POWER_BOMB_RADIUS; dy++) {
+          for (let dx = -POWER_BOMB_RADIUS; dx <= POWER_BOMB_RADIUS; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || nx >= w || ny < 0 || ny >= this.level.data.height) continue;
+            const ni = ny * w + nx;
+            if (this.level.grid[ni] === WALL) continue;
+            this.setOwner(ni, seat, true);
+            hit.push(ni);
+          }
+        }
+        // Patlama karolarını bekleyen yola ekle: host onaylayana kadar korunur
+        if (pid === this.myPlayerId && this.myCurrentSeq > 0) {
+          const paths = this.getPending(pid);
+          paths.set(this.myCurrentSeq, [...(paths.get(this.myCurrentSeq) ?? []), ...hit]);
+        }
+        this.renderer.triggerImpact(x, y, 1.0);
+        this.renderer.triggerShake(0.8);
+        break;
+      }
+      case 'shield': this.setFx(pid, 's', POWER_SHIELD_MS); break;
+      case 'brush':  this.setFx(pid, 'b', POWER_BRUSH_MS);  break;
+      case 'freeze': {
+        // Diğer tüm bağlı oyuncuları dondur
+        for (const other of this.seatOrder) {
+          if (other === pid) continue;
+          if (other !== this.myPlayerId && !this.remotePlayers.get(other)?.connected) continue;
+          this.setFx(other, 'f', POWER_FREEZE_MS);
+        }
+        break;
+      }
+    }
+  }
+
+  // Geniş fırça etkin ise kayma yolunu dik komşularla genişlet
+  private expandCells(pid: string, cells: number[]): number[] {
+    if (!this.level || !this.hasFx(pid, 'b')) return cells;
+    const w = this.level.data.width;
+    const h = this.level.data.height;
+    const out = new Set<number>(cells);
+    for (const idx of cells) {
+      const x = idx % w, y = (idx - x) / w;
+      const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (const [dx, dy] of neighbors) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+        const ni = ny * w + nx;
+        if (this.level.grid[ni] !== WALL) out.add(ni);
+      }
+    }
+    return [...out];
+  }
+
   private colorOfSeat(seat: number): number {
     const pid = this.seatOrder[seat];
     return this.players[pid]?.colorIndex ?? seat;
@@ -759,6 +971,7 @@ export class MultiplayerGame {
   }
 
   // Bir hücreyi koltuğa ver. Yol karosu ilk kez boyanıyorsa veya sahibi değişiyorsa animasyon tetiklenir.
+  // Kalkanlı oyuncunun karoları çalınamaz.
   private setOwner(idx: number, seat: number, markDirty: boolean) {
     if (!this.level) return;
     if (this.level.grid[idx] === WALL) return;
@@ -768,6 +981,7 @@ export class MultiplayerGame {
     const isNewTile = this.level.grid[idx] === PATH;
     const prev = this.ownerSeat[idx];
     if (!isNewTile && prev === seat + 1) return;
+    if (prev > 0 && prev !== seat + 1 && this.hasFx(this.seatOrder[prev - 1], 's')) return;
 
     this.level.paintTileMultiplayer(x, y);
     this.ownerSeat[idx] = seat + 1;
@@ -797,7 +1011,12 @@ export class MultiplayerGame {
   private flushBoard() {
     this.boardDirty  = false;
     this.lastFlushAt = performance.now();
-    this.roomManager.writeBoard(this.encodeBoard(), { ...this.applied }).catch(() => {});
+    this.roomManager.writeBoard({
+      board:   this.encodeBoard(),
+      applied: { ...this.applied },
+      caps:    [...this.capsules].map(([idx, t]) => [idx, t] as [number, string]),
+      fx:      this.fxToObject(),
+    }).catch(() => {});
   }
 
   // Host snapshot'ını uygula. force=false iken host'un henüz uygulamadığı
@@ -808,6 +1027,12 @@ export class MultiplayerGame {
 
     const { board, applied } = sync;
     const n = Math.min(board.length, this.ownerSeat.length);
+
+    // Kapsüller ve etkiler host'un gerçeğidir
+    this.capsules = new Map(
+      (sync.caps ?? []).map(([idx, t]) => [idx, t as PowerType])
+    );
+    this.fx = new Map(Object.entries(sync.fx ?? {}));
 
     const protectedCells = new Set<number>();
     if (!force) {
@@ -847,6 +1072,7 @@ export class MultiplayerGame {
   private handleSwipe(dir: Direction) {
     if (!this.level || !this.myBall) return;
     if (this.roomState !== 'playing' || this.gameEnding || this.deadlineReached) return;
+    if (this.hasFx(this.myPlayerId, 'f')) { playBump(); return; }
 
     resumeAudio();
 
@@ -892,15 +1118,42 @@ export class MultiplayerGame {
       this.updateTimer();
       this.renderer.renderMultiplayer(
         this.level,
-        this.myBall,
-        this.myColorIndex,
-        Array.from(this.remotePlayers.values()),
-        this.tileColors
+        this.buildRenderPlayers(),
+        this.tileColors,
+        this.buildRenderCapsules()
       );
     }
 
     this.animFrameId = requestAnimationFrame(this.loop);
   };
+
+  private buildRenderPlayers(): RenderPlayer[] {
+    const out: RenderPlayer[] = [];
+    for (const [pid, rp] of this.remotePlayers) {
+      if (!rp.connected) continue;
+      out.push({
+        ball: rp.ball, colorIndex: rp.colorIndex, name: rp.name, isMe: false,
+        shield: this.hasFx(pid, 's'), frozen: this.hasFx(pid, 'f'), brush: this.hasFx(pid, 'b'),
+      });
+    }
+    if (this.myBall) {
+      out.push({
+        ball: this.myBall, colorIndex: this.myColorIndex, name: this.myName, isMe: true,
+        shield: this.hasFx(this.myPlayerId, 's'),
+        frozen: this.hasFx(this.myPlayerId, 'f'),
+        brush:  this.hasFx(this.myPlayerId, 'b'),
+      });
+    }
+    return out;
+  }
+
+  private buildRenderCapsules(): RenderCapsule[] {
+    if (!this.level) return [];
+    const w = this.level.data.width;
+    return [...this.capsules].map(([idx, type]) => ({
+      x: idx % w, y: Math.floor(idx / w), type,
+    }));
+  }
 
   private update(dt: number) {
     if (!this.level || !this.myBall || this.gameEnding) return;
@@ -911,7 +1164,11 @@ export class MultiplayerGame {
     // Kendi topum
     const myPainted = this.myBall.update(dt);
     if (myPainted) {
-      for (const t of myPainted) this.setOwner(t.y * w + t.x, mySeat, true);
+      const raw = myPainted.map((t) => t.y * w + t.x);
+      for (const idx of this.expandCells(this.myPlayerId, raw)) {
+        this.setOwner(idx, mySeat, true);
+      }
+      this.collectCapsules(this.myPlayerId, mySeat, raw);
       if (!this.myBall.animating) {
         this.applied[this.myPlayerId] = this.myCurrentSeq;
         if (!this.deadlineReached && this.moveQueue.length > 0) {
@@ -928,7 +1185,10 @@ export class MultiplayerGame {
 
       const painted = rp.update(dt, this.level.grid, w, h);
       if (painted) {
-        for (const t of painted) this.setOwner(t.y * w + t.x, seat, true);
+        const raw = painted.map((t) => t.y * w + t.x);
+        for (const idx of this.expandCells(pid, raw)) this.setOwner(idx, seat, true);
+        // Kapsül toplama kararını host verir; istemci kendi topunu tahmin eder
+        if (this.isHost) this.collectCapsules(pid, seat, raw);
       }
 
       if (rp.ball.animating) {
@@ -944,6 +1204,32 @@ export class MultiplayerGame {
     }
 
     const now = performance.now();
+
+    // Host: kapsül üret / süresi dolanı kaldır
+    if (this.isHost && this.settings.powerups && !this.deadlineReached && this.nextSpawnAt > 0) {
+      const sNow = this.roomManager.serverNow();
+      for (const [idx, expiry] of this.capsuleExpiry) {
+        if (expiry <= sNow) {
+          this.capsules.delete(idx);
+          this.capsuleExpiry.delete(idx);
+          this.boardDirty = true;
+        }
+      }
+      if (sNow >= this.nextSpawnAt) {
+        if (this.capsules.size < powerMaxOnBoard(this.settings.arenaSize)) this.spawnCapsule();
+        const span = POWER_SPAWN_MAX_MS - POWER_SPAWN_MIN_MS;
+        this.nextSpawnAt = sNow + POWER_SPAWN_MIN_MS + Math.random() * span;
+      }
+    }
+
+    // Etki süresi dolduysa tahtayı tazele (kalkan bitişi gibi)
+    if (this.isHost && this.fx.size > 0) {
+      const live = this.fxToObject();
+      if (Object.keys(live).length !== this.fx.size) {
+        this.fx = new Map(Object.entries(live));
+        this.boardDirty = true;
+      }
+    }
 
     // Host: tahtayı yayınla
     if (this.isHost && this.boardDirty && now - this.lastFlushAt >= MP_BOARD_FLUSH_MS) {
@@ -1053,6 +1339,10 @@ export class MultiplayerGame {
     this.remoteRecordedSeq = new Map();
     this.boardDirty = false;
     this.lastSync   = null;
+    this.capsules      = new Map();
+    this.capsuleExpiry = new Map();
+    this.fx            = new Map();
+    this.nextSpawnAt   = 0;
     this.moveSeq      = 0;
     this.myCurrentSeq = 0;
     this.moveQueue    = [];

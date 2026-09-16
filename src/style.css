@@ -2060,3 +2060,67 @@ html, body {
   font-weight: 700;
   color: rgba(106, 96, 88, 0.55);
 }
+
+/* --- Bekleme odası ayarları --- */
+.mp-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.mp-setting-label {
+  flex: 0 0 54px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(106, 96, 88, 0.7);
+}
+.mp-seg {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.mp-seg-btn {
+  flex: 1;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(106, 96, 88, 0.6);
+  padding: 7px 4px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mp-seg-btn.active {
+  background: linear-gradient(135deg, #d4906c, #c0705a);
+  color: #fff;
+}
+
+/* --- Kapsül bildirimi --- */
+.mp-power-toast {
+  position: absolute;
+  left: 50%;
+  top: 74px;
+  transform: translate(-50%, -6px);
+  padding: 6px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #6a6058;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+.mp-power-toast-show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

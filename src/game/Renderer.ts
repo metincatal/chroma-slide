@@ -4,6 +4,7 @@ import {
   WALL, PATH, PAINTED,
   COLORS, PAINT_GRADIENTS,
   BALL_RADIUS, PAINT_ANIM_DURATION,
+  PowerType,
 } from '../utils/constants';
 import { ThemeConfig } from '../utils/themes';
 
@@ -17,6 +18,31 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.src = src;
   });
 }
+
+// Çok oyunculu çizim girdileri
+export interface RenderPlayer {
+  ball: Ball;
+  colorIndex: number;
+  name: string;
+  isMe: boolean;
+  shield: boolean;
+  frozen: boolean;
+  brush: boolean;
+}
+
+export interface RenderCapsule {
+  x: number;
+  y: number;
+  type: PowerType;
+}
+
+// Kapsül halka renkleri (ikon çizgisi hepsinde aynı: koyu, aynı kalınlık)
+const CAPSULE_TINTS: Record<PowerType, string> = {
+  bomb:   '#e07a5f',
+  brush:  '#7cb89a',
+  shield: '#6f9fd8',
+  freeze: '#7cc4e0',
+};
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -475,16 +501,18 @@ export class Renderer {
   // ============================================================
   renderMultiplayer(
     level: Level,
-    myBall: Ball,
-    myColorIndex: number,
-    remotePlayers: { ball: Ball; colorIndex: number; name: string }[],
-    tileColors: Map<string, number>
+    players: RenderPlayer[],
+    tileColors: Map<string, number>,
+    capsules: RenderCapsule[]
   ) {
     const ctx = this.ctx;
     const { width: gw, height: gh } = level.data;
     this.calculateLayout(gw, gh);
 
     if (this.baseLevelId !== level.data.id) this.buildBaseLayer(level);
+
+    const me = players.find((p) => p.isMe);
+    const myColorIndex = me?.colorIndex ?? 0;
 
     // Sarsıntı hesapla (aynı mantık)
     let sx = 0, sy = 0, scaleVal = 1;
@@ -534,7 +562,6 @@ export class Renderer {
         const ccx      = px + s / 2, ccy = py + s / 2;
         const sw       = s * eased + e * 2, sh = s * eased + e * 2;
 
-        // Sahip karonun rengi
         const tileKey  = `${y}_${x}`; // Firebase formatı: y_x
         const colorIdx = (tileColors.get(tileKey) ?? myColorIndex) % PAINT_GRADIENTS.length;
         const [gradStart, gradEnd] = PAINT_GRADIENTS[colorIdx];
@@ -555,32 +582,185 @@ export class Renderer {
       }
     }
 
-    // 3. Uzak oyuncu topları (arkada)
-    for (const rp of remotePlayers) {
-      const [gs, ge] = PAINT_GRADIENTS[rp.colorIndex % PAINT_GRADIENTS.length];
-      const trailColor = this.lerpColor(gs, ge, 0.5);
-      this.drawSpeedTrail(ctx, rp.ball, trailColor);
-      this.drawBall(rp.ball, trailColor);
+    // 3. Kapsüller
+    for (const c of capsules) this.drawCapsule(ctx, c, now);
 
-      // İsim etiketi
-      if (!rp.ball.animating) {
-        const bx = this.offsetX + (rp.ball.displayX + 0.5) * s;
-        const by = this.offsetY + (rp.ball.displayY + 0.5) * s;
-        ctx.save();
-        ctx.font      = `bold ${Math.max(10, s * 0.22)}px sans-serif`;
-        ctx.fillStyle = trailColor;
-        ctx.textAlign = 'center';
-        ctx.fillText(rp.name.slice(0, 6), bx, by - s * 0.6);
-        ctx.restore();
+    // 4. Uzak oyuncu topları (arkada)
+    for (const p of players) {
+      if (!p.isMe) this.drawMpPlayer(ctx, p, now);
+    }
+
+    // 5. Kendi topum (en üstte)
+    if (me) this.drawMpPlayer(ctx, me, now);
+
+    ctx.restore();
+  }
+
+  private drawMpPlayer(ctx: CanvasRenderingContext2D, p: RenderPlayer, now: number) {
+    const s = this.cellSize;
+    const [gs, ge] = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
+    const color = this.lerpColor(gs, ge, 0.5);
+
+    this.drawSpeedTrail(ctx, p.ball, color);
+    if (p.isMe) this.updateTrail(ctx, p.ball, color);
+    this.drawBall(p.ball, color);
+    this.drawEffectRings(ctx, p, color, now);
+
+    // İsim etiketi
+    if (!p.isMe && !p.ball.animating) {
+      const bx = this.offsetX + (p.ball.displayX + 0.5) * s;
+      const by = this.offsetY + (p.ball.displayY + 0.5) * s;
+      ctx.save();
+      ctx.font      = `bold ${Math.max(10, s * 0.22)}px sans-serif`;
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.fillText(p.name.slice(0, 6), bx, by - s * 0.6);
+      ctx.restore();
+    }
+  }
+
+  // --- Etki halkaları: kalkan (beyaz çift halka), fırça (kesikli halka), donma (buz diski) ---
+  private drawEffectRings(ctx: CanvasRenderingContext2D, p: RenderPlayer, color: string, now: number) {
+    if (!p.shield && !p.brush && !p.frozen) return;
+    const s  = this.cellSize;
+    const bx = this.offsetX + (p.ball.displayX + 0.5) * s;
+    const by = this.offsetY + (p.ball.displayY + 0.5) * s;
+    const r  = BALL_RADIUS * (s / 60);
+    const lw = Math.max(2, s * 0.05);
+
+    ctx.save();
+    ctx.lineWidth = lw;
+
+    if (p.shield) {
+      const pulse = Math.sin(now * 0.008) * r * 0.06;
+      ctx.beginPath();
+      ctx.arc(bx, by, r * 1.35 + pulse, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bx, by, r * 1.6 + pulse, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.stroke();
+    }
+
+    if (p.brush) {
+      ctx.setLineDash([s * 0.12, s * 0.08]);
+      ctx.lineDashOffset = -now * 0.02;
+      ctx.beginPath();
+      ctx.arc(bx, by, r * 1.45, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (p.frozen) {
+      ctx.beginPath();
+      ctx.arc(bx, by, r * 1.15, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(170,220,245,0.55)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = Math.max(1.5, s * 0.035);
+      for (let i = 0; i < 3; i++) {
+        const a = (i * Math.PI) / 3 + now * 0.001;
+        ctx.beginPath();
+        ctx.moveTo(bx - Math.cos(a) * r * 0.9, by - Math.sin(a) * r * 0.9);
+        ctx.lineTo(bx + Math.cos(a) * r * 0.9, by + Math.sin(a) * r * 0.9);
+        ctx.stroke();
       }
     }
 
-    // 4. Kendi topum (en üstte)
-    const [mgs, mge] = PAINT_GRADIENTS[myColorIndex % PAINT_GRADIENTS.length];
-    const myTrailColor = this.lerpColor(mgs, mge, 0.5);
-    this.drawSpeedTrail(ctx, myBall, myTrailColor);
-    this.updateTrail(ctx, myBall, myTrailColor);
-    this.drawBall(myBall, myTrailColor);
+    ctx.restore();
+  }
+
+  // --- Kapsül: beyaz disk, tipe göre renkli halka, tek tip koyu çizgi ikon ---
+  private drawCapsule(ctx: CanvasRenderingContext2D, c: RenderCapsule, now: number) {
+    const s  = this.cellSize;
+    const pulse = Math.sin(now * 0.005 + c.x * 0.7 + c.y * 0.3) * 0.5 + 0.5;
+    const cx = this.offsetX + (c.x + 0.5) * s;
+    const cy = this.offsetY + (c.y + 0.5) * s - pulse * s * 0.04;
+    const r  = s * 0.30 + pulse * s * 0.015;
+    const tint = CAPSULE_TINTS[c.type] ?? '#6a6058';
+
+    ctx.save();
+
+    // Disk + gölge
+    ctx.shadowColor   = 'rgba(0,0,0,0.25)';
+    ctx.shadowBlur    = s * 0.15;
+    ctx.shadowOffsetY = s * 0.05;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#fffdf8';
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+
+    // Tip halkası
+    ctx.lineWidth   = Math.max(2, s * 0.06);
+    ctx.strokeStyle = tint;
+    ctx.globalAlpha = 0.9;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // İkon (hepsinde aynı çizgi rengi ve kalınlığı)
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = '#6a6058';
+    ctx.fillStyle   = '#6a6058';
+    ctx.lineWidth   = Math.max(1.5, s * 0.05);
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    const k = r * 0.55;
+
+    switch (c.type) {
+      case 'bomb': {
+        ctx.beginPath();
+        ctx.arc(-k * 0.1, k * 0.15, k * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(k * 0.4, -k * 0.35);
+        ctx.lineTo(k * 0.85, -k * 0.85);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(k * 0.95, -k * 0.95, k * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'brush': {
+        // Rulo gövdesi + sap
+        ctx.beginPath();
+        ctx.moveTo(-k, -k * 0.75);
+        ctx.lineTo(k, -k * 0.75);
+        ctx.lineTo(k, k * 0.05);
+        ctx.lineTo(-k, k * 0.05);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, k * 0.05);
+        ctx.lineTo(0, k);
+        ctx.stroke();
+        break;
+      }
+      case 'shield': {
+        ctx.beginPath();
+        ctx.moveTo(0, -k);
+        ctx.lineTo(k * 0.85, -k * 0.6);
+        ctx.lineTo(k * 0.7, k * 0.3);
+        ctx.quadraticCurveTo(k * 0.35, k * 0.85, 0, k);
+        ctx.quadraticCurveTo(-k * 0.35, k * 0.85, -k * 0.7, k * 0.3);
+        ctx.lineTo(-k * 0.85, -k * 0.6);
+        ctx.closePath();
+        ctx.stroke();
+        break;
+      }
+      case 'freeze': {
+        for (let i = 0; i < 3; i++) {
+          const a = (i * Math.PI) / 3;
+          ctx.beginPath();
+          ctx.moveTo(-Math.cos(a) * k, -Math.sin(a) * k);
+          ctx.lineTo(Math.cos(a) * k, Math.sin(a) * k);
+          ctx.stroke();
+        }
+        break;
+      }
+    }
 
     ctx.restore();
   }
