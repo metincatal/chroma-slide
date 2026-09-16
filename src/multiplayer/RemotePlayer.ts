@@ -24,6 +24,12 @@ export class RemotePlayer {
     this.connected  = true;
   }
 
+  // Şu an oynanan (veya son oynanan) hamlenin sırası
+  get currentSeq(): number { return this.lastProcessedSeq; }
+
+  // Kuyrukta bekleyen hamle var mı
+  get hasPending(): boolean { return this.pendingMoves.length > 0; }
+
   addMove(dir: Direction, seq: number): void {
     // Duplicate koruması
     if (seq <= this.lastProcessedSeq) return;

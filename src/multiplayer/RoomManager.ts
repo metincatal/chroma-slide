@@ -5,7 +5,6 @@ import {
   get,
   update,
   onValue,
-  runTransaction,
   onDisconnect,
 } from 'firebase/database';
 import { Direction } from '../utils/constants';
@@ -26,6 +25,9 @@ export interface RoomInfo {
   levelId: number;
   createdAt: number;
   gameStartAt: number | null;
+  gameEndAt?: number | null;
+  // pid → koltuk (köşe) indeksi; host oyun başlarken yazar
+  seats?: Record<string, number>;
   visibility?: RoomVisibility;
 }
 
@@ -48,6 +50,15 @@ export interface RematchData {
   accepted?: Record<string, boolean>;
 }
 
+// Host'un yayınladığı tahta anlık görüntüsü
+export interface BoardSync {
+  board: string;                    // hücre başına '0' (boş) veya koltuk+1
+  applied: Record<string, number>;  // pid → host'un uyguladığı son hamle seq'i
+}
+
+// Veri yerleşimi:
+//   rooms/{code}            → oda meta + players + rematch + joinRequests (düşük trafik)
+//   rooms/_live/{code}      → moves + sync (yüksek trafik; oda kökü dinleyicisini tetiklemez)
 export class RoomManager {
   private db: Database;
   private myId: string;
@@ -55,14 +66,40 @@ export class RoomManager {
   private unsubscribers: (() => void)[] = [];
   // Daha önce işlenen hamleleri takip et (duplicate önlemek için)
   private processedMoves: Map<string, Set<number>> = new Map();
+  // Sunucu saati farkı (ms) — sayaçların tüm istemcilerde aynı anda bitmesi için
+  private serverOffset = 0;
 
   constructor(db: Database, playerId: string) {
     this.db   = db;
     this.myId = playerId;
+    onValue(ref(this.db, '.info/serverTimeOffset'), (snap) => {
+      const v = snap.val();
+      this.serverOffset = typeof v === 'number' ? v : 0;
+    });
+    // Bağlantı kısa süreliğine koparsa sunucu bizi "ayrıldı" işaretler;
+    // geri gelince odadaysak varlığımızı yeniden yaz (mobilde sık yaşanır)
+    let wasConnected = false;
+    onValue(ref(this.db, '.info/connected'), (snap) => {
+      const nowConnected = snap.val() === true;
+      if (nowConnected && wasConnected === false && this.roomCode) {
+        this.reassertPresence();
+      }
+      wasConnected = nowConnected;
+    });
+  }
+
+  private reassertPresence(): void {
+    if (!this.roomCode) return;
+    const connRef = ref(this.db, `rooms/${this.roomCode}/players/${this.myId}/connected`);
+    set(connRef, true).catch(() => {});
+    onDisconnect(connRef).set(false);
   }
 
   get playerId(): string { return this.myId; }
   get currentRoomCode(): string | null { return this.roomCode; }
+
+  // Sunucu saatine göre şimdi
+  serverNow(): number { return Date.now() + this.serverOffset; }
 
   // --- Yardımcılar ---
 
@@ -73,6 +110,10 @@ export class RoomManager {
       code += chars[Math.floor(Math.random() * chars.length)];
     }
     return code;
+  }
+
+  private liveRef(path: string) {
+    return ref(this.db, `rooms/_live/${this.roomCode}/${path}`);
   }
 
   // --- Oda işlemleri ---
@@ -135,8 +176,9 @@ export class RoomManager {
     if (!roomSnap.exists()) throw new Error('Oda bulunamadı');
 
     const room = roomSnap.val() as RoomInfo;
-    if (room.state === 'playing')  throw new Error('Oyun zaten başlamış');
-    if (room.state === 'finished') throw new Error('Oyun bitti');
+    if (room.state === 'countdown') throw new Error('Oyun başlıyor, bir sonraki tura katıl');
+    if (room.state === 'playing')   throw new Error('Oyun zaten başlamış');
+    if (room.state === 'finished')  throw new Error('Oyun bitti');
 
     const playersSnap = await get(ref(this.db, `rooms/${code}/players`));
     const players = playersSnap.val() || {};
@@ -198,7 +240,6 @@ export class RoomManager {
       },
       [`joinRequests/${requesterId}`]: null,
     });
-
   }
 
   async declineRequest(requesterId: string): Promise<void> {
@@ -282,16 +323,32 @@ export class RoomManager {
   }
 
   // --- Oyun başlatma (atomik) ---
+  // seats: pid → köşe; colorFixes: aynı rengi seçen oyunculara yeni renk
 
-  async startGame(levelId: number): Promise<void> {
+  async startGame(
+    levelId: number,
+    seats: Record<string, number>,
+    colorFixes: Record<string, number>,
+    durationMs: number
+  ): Promise<void> {
     if (!this.roomCode) throw new Error('Odada değilsiniz');
-    const now = Date.now();
-    await update(ref(this.db, `rooms/${this.roomCode}`), {
+    const startAt = this.serverNow() + 3000;
+
+    const updates: Record<string, unknown> = {
       levelId,
       state:       'countdown',
-      gameStartAt: now + 3000,
-    });
-    // Oyun başlayınca publicRooms'tan sil (izin yoksa yoksay)
+      gameStartAt: startAt,
+      gameEndAt:   startAt + durationMs,
+      seats,
+    };
+    for (const [pid, ci] of Object.entries(colorFixes)) {
+      updates[`players/${pid}/colorIndex`] = ci;
+    }
+
+    // Önceki turdan kalan hamle/tahta verisini temizle
+    await set(ref(this.db, `rooms/_live/${this.roomCode}`), null);
+    await update(ref(this.db, `rooms/${this.roomCode}`), updates);
+    // Oyun başlayınca aktif listeden sil (izin yoksa yoksay)
     await this.removePublicRoom();
   }
 
@@ -299,25 +356,33 @@ export class RoomManager {
 
   async sendMove(dir: Direction, seq: number): Promise<void> {
     if (!this.roomCode) return;
-    await set(
-      ref(this.db, `rooms/${this.roomCode}/moves/${this.myId}/${seq}`),
-      { dir, timestamp: Date.now() }
-    );
+    await set(this.liveRef(`moves/${this.myId}/${seq}`), { dir, timestamp: Date.now() });
   }
 
-  async claimTile(x: number, y: number): Promise<void> {
+  // --- Tahta senkronu (sadece host yazar) ---
+
+  async writeBoard(board: string, applied: Record<string, number>): Promise<void> {
     if (!this.roomCode) return;
-    const key     = `${y}_${x}`;
-    const tileRef = ref(this.db, `rooms/${this.roomCode}/tileOwners/${key}`);
-    await runTransaction(tileRef, () => ({ playerId: this.myId }));
+    await set(this.liveRef('sync'), { board, applied });
   }
 
-  async updateScore(score: number): Promise<void> {
+  onBoardChange(callback: (sync: BoardSync) => void): () => void {
+    if (!this.roomCode) return () => {};
+    const unsub = onValue(this.liveRef('sync'), (snap) => {
+      const v = snap.val() as Partial<BoardSync> | null;
+      if (!v || typeof v.board !== 'string') return;
+      callback({ board: v.board, applied: v.applied ?? {} });
+    });
+    this.unsubscribers.push(unsub);
+    return unsub;
+  }
+
+  // Oyun sonu skorları (host yazar)
+  async updateScores(scores: Record<string, number>): Promise<void> {
     if (!this.roomCode) return;
-    await set(
-      ref(this.db, `rooms/${this.roomCode}/players/${this.myId}/score`),
-      score
-    );
+    const updates: Record<string, number> = {};
+    for (const [pid, s] of Object.entries(scores)) updates[`players/${pid}/score`] = s;
+    await update(ref(this.db, `rooms/${this.roomCode}`), updates);
   }
 
   async finishGame(): Promise<void> {
@@ -400,7 +465,7 @@ export class RoomManager {
     if (!this.roomCode) return () => {};
 
     const unsub = onValue(
-      ref(this.db, `rooms/${this.roomCode}/moves`),
+      this.liveRef('moves'),
       (snap) => {
         const allMoves = (snap.val() as Record<string, Record<string, { dir: Direction }>>) || {};
         for (const [pid, moves] of Object.entries(allMoves)) {
@@ -415,24 +480,6 @@ export class RoomManager {
               callback(pid, move.dir, seq);
             }
           }
-        }
-      }
-    );
-    this.unsubscribers.push(unsub);
-    return unsub;
-  }
-
-  onTileOwnerChange(
-    callback: (key: string, playerId: string) => void
-  ): () => void {
-    if (!this.roomCode) return () => {};
-
-    const unsub = onValue(
-      ref(this.db, `rooms/${this.roomCode}/tileOwners`),
-      (snap) => {
-        const tiles = (snap.val() as Record<string, { playerId: string }>) || {};
-        for (const [key, data] of Object.entries(tiles)) {
-          callback(key, data.playerId);
         }
       }
     );
@@ -479,15 +526,16 @@ export class RoomManager {
 
   // --- Rematch sıfırlama ---
 
-  // Oda verilerini sıfırla (state → waiting, hamle/renk/rematch temizle)
+  // Oda verilerini sıfırla (state → waiting, hamle/tahta/koltuk/rematch temizle)
   // Sadece host çağırır; diğerleri onRoomChange ile bildirim alır
   async resetForRematch(): Promise<void> {
     if (!this.roomCode) return;
+    await set(ref(this.db, `rooms/_live/${this.roomCode}`), null);
     await update(ref(this.db, `rooms/${this.roomCode}`), {
       state:       'waiting',
       gameStartAt: null,
-      moves:       null,
-      tileOwners:  null,
+      gameEndAt:   null,
+      seats:       null,
       rematch:     null,
     });
   }

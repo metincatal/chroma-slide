@@ -1,5 +1,5 @@
 import { getAllStars, markOnboardingSeen } from '../utils/storage';
-import { GameMode, LEVEL_COLORS, PAINT_GRADIENTS } from '../utils/constants';
+import { GameMode, LEVEL_COLORS, PAINT_GRADIENTS, MP_ROUND_DURATION_MS } from '../utils/constants';
 import { THEMES, ThemeConfig } from '../utils/themes';
 import { getSelectedTheme } from '../utils/storage';
 import { getDifficultyTiers, DifficultyTier } from '../levels/procedural';
@@ -38,7 +38,6 @@ interface ScreenCallbacks {
   onMpDeclineRequest?:   (requesterId: string) => void;
   onMpStartGame?:        (levelId: number) => void;
   onMpLeave?:            () => void;
-  onMpRestart?:          () => void;
   onMpPlayAgain?:        () => void;
   onMpBackToMenu?:       () => void;
   onMpRequestRematch?:   () => void;
@@ -110,7 +109,8 @@ export class ScreenManager {
         this.showMpResults(
           (data?.players as Record<string, PlayerData>) ?? {},
           (data?.finalScores as Record<string, number>) ?? {},
-          (data?.myId as string) ?? ''
+          (data?.myId as string) ?? '',
+          (data?.totalTiles as number) ?? 0
         );
         break;
     }
@@ -152,6 +152,8 @@ export class ScreenManager {
     if (startBtn) {
       const connected = Object.values(players).filter((p) => p.connected).length;
       startBtn.disabled = connected < 2;
+      const hint = this.overlay.querySelector('.mp-waiting-hint-text') as HTMLElement | null;
+      if (hint) hint.style.display = connected < 2 ? '' : 'none';
     }
   }
 
@@ -164,6 +166,13 @@ export class ScreenManager {
       el.style.display = 'flex';
       el.textContent   = String(remaining);
     }
+  }
+
+  updateMpTimer(seconds: number, urgent: boolean) {
+    const el = this.overlay.querySelector('#mp-timer') as HTMLElement | null;
+    if (!el) return;
+    el.textContent = String(seconds);
+    el.classList.toggle('mp-timer-urgent', urgent);
   }
 
   updateMpGameScores(
@@ -950,16 +959,19 @@ export class ScreenManager {
   ) {
     const connectedCount = Object.values(players).filter((p) => p.connected).length;
     const canStart = connectedCount >= 2;
+    const arenaInfo = `${Math.round(MP_ROUND_DURATION_MS / 1000)} saniye · herkes ayrı köşeden · boya çalmak serbest`;
 
     const hostControls = isHost ? `
       <div class="mp-waiting-controls">
         <div class="mp-level-picker">
+          <span class="mp-level-label">Arena</span>
           <button class="mp-picker-btn" id="btn-level-down">−</button>
           <input class="mp-level-input" id="mp-level-input" type="number"
             value="${selectedLevel}" min="1" max="${totalLevels}"
             inputmode="numeric" />
           <button class="mp-picker-btn" id="btn-level-up">+</button>
         </div>
+        <div class="mp-arena-info">${arenaInfo}</div>
         <button class="btn btn-mode-multi mp-full-btn" id="btn-mp-start" ${canStart ? '' : 'disabled'}>
           BAŞLAT
         </button>
@@ -971,6 +983,7 @@ export class ScreenManager {
         <div class="mp-waiting-dots"><span></span><span></span><span></span></div>
         Host oyunu başlatmayı bekliyor
       </div>
+      <div class="mp-arena-info">${arenaInfo}</div>
     `;
 
     const html = `
@@ -1033,15 +1046,13 @@ export class ScreenManager {
 
     const html = `
       <div class="mp-game-hud">
+        <div class="mp-timer" id="mp-timer">${Math.round(MP_ROUND_DURATION_MS / 1000)}</div>
         <div class="mp-scores" id="mp-scores">
           ${this.buildScoreChipsHtml(players, scores, myId)}
         </div>
         <div class="mp-room-tag">${roomCode}</div>
         <div class="mp-countdown" id="mp-countdown" style="display:none"></div>
         <div class="mp-hud-actions">
-          <button class="hud-btn mp-restart-btn" id="btn-mp-restart" title="Topu Sıfırla">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/></svg>
-          </button>
           <button class="hud-btn mp-leave-game-btn" id="btn-mp-leave-game" title="Ayrıl">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           </button>
@@ -1050,9 +1061,6 @@ export class ScreenManager {
     `;
     this.overlay.innerHTML = html;
 
-    this.overlay.querySelector('#btn-mp-restart')!.addEventListener('click', () => {
-      playClick(); this.callbacks.onMpRestart?.();
-    });
     this.overlay.querySelector('#btn-mp-leave-game')!.addEventListener('click', () => {
       playClick(); this.callbacks.onMpLeave?.();
     });
@@ -1061,7 +1069,8 @@ export class ScreenManager {
   private showMpResults(
     players: Record<string, PlayerData>,
     finalScores: Record<string, number>,
-    myId: string
+    myId: string,
+    totalTiles: number
   ) {
     const sorted = Object.entries(players)
       .filter(([, p]) => p)
@@ -1072,20 +1081,21 @@ export class ScreenManager {
     sorted.forEach(([pid, p], idx) => {
       const isMe    = pid === myId;
       const meClass = isMe ? ' mp-result-me' : '';
+      const pct     = totalTiles > 0 ? Math.round(((finalScores[pid] ?? 0) / totalTiles) * 100) : 0;
       const [gs]    = PAINT_GRADIENTS[p.colorIndex % PAINT_GRADIENTS.length];
       rankHtml += `
         <div class="mp-result-row${meClass}">
           <span class="mp-result-medal">${medals[idx] ?? ''}</span>
           <span class="mp-result-dot" style="background:${gs}"></span>
           <span class="mp-result-name">${p.name}${isMe ? ' (sen)' : ''}</span>
-          <span class="mp-result-score">${finalScores[pid] ?? 0} karo</span>
+          <span class="mp-result-score">${finalScores[pid] ?? 0} karo<span class="mp-result-pct">%${pct}</span></span>
         </div>
       `;
     });
 
     const html = `
       <div class="mp-screen mp-results-screen">
-        <div class="mp-screen-title">Oyun Bitti!</div>
+        <div class="mp-screen-title">Süre Doldu!</div>
         <div class="mp-results-list">${rankHtml}</div>
         <div class="mp-results-actions">
           <button class="btn btn-mode-multi" id="btn-mp-again">TEKRAR OYNA</button>

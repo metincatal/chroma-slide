@@ -3,7 +3,7 @@ import { LevelData } from './types';
 import { DifficultyConfig } from './procedural';
 
 // Seeded PRNG - mulberry32
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   return () => {
     seed |= 0;
     seed = (seed + 0x6d2b79f5) | 0;

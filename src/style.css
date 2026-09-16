@@ -2016,3 +2016,47 @@ html, body {
   transition: opacity 0.2s;
 }
 
+
+/* --- Arena: süre sayacı ve bilgi satırları --- */
+.mp-game-hud {
+  flex-direction: column;
+  gap: 6px;
+}
+.mp-timer {
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1;
+  color: #6a6058;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.mp-timer-urgent {
+  color: #d9534f;
+  animation: mpTimerPulse 1s ease-in-out infinite;
+}
+@keyframes mpTimerPulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.18); }
+}
+.mp-level-label {
+  padding: 0 6px 0 14px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(106, 96, 88, 0.7);
+}
+.mp-arena-info {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(106, 96, 88, 0.55);
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+.mp-result-pct {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(106, 96, 88, 0.55);
+}

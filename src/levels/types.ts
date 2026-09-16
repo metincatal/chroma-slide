@@ -20,4 +20,6 @@ export interface LevelData {
   difficulty?: string;
   // Oyun modu
   mode?: GameMode;
+  // Çok oyunculu arena: koltuk sırasına göre başlangıç noktaları
+  starts?: { x: number; y: number }[];
 }

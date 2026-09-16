@@ -166,10 +166,25 @@ export function saveMpColorIndex(index: number): void {
 const MP_ID_KEY = 'chroma_mp_id';
 
 export function getOrCreatePlayerId(): string {
+  // Geliştirme: ?pid=xyz ile aynı tarayıcıda farklı oyuncu kimliği (iki sekme testi)
+  try {
+    const override = new URLSearchParams(window.location.search).get('pid');
+    if (override) return `dev_${override.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  } catch {}
   let id = localStorage.getItem(MP_ID_KEY);
   if (!id) {
     id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     localStorage.setItem(MP_ID_KEY, id);
   }
   return id;
+}
+
+// Geliştirme: ?dur=15 ile tur süresini saniye cinsinden kısalt (yalnızca host'ta etkili)
+export function getDevRoundDurationMs(): number | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get('dur');
+    if (!v) return null;
+    const sec = parseInt(v, 10);
+    return Number.isFinite(sec) && sec >= 5 ? sec * 1000 : null;
+  } catch { return null; }
 }

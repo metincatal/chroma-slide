@@ -72,3 +72,9 @@ export const STAR_THRESHOLDS = {
   TWO: 1.5,
   ONE: Infinity
 } as const;
+
+// Çok oyunculu arena
+export const MP_ROUND_DURATION_MS = 60000; // Tur süresi
+export const MP_URGENT_SECONDS = 10;       // Kırmızı sayaç eşiği
+export const MP_BOARD_FLUSH_MS = 80;       // Host tahta yayın aralığı
+export const MP_END_GRACE_MS = 700;        // Süre dolunca havadaki hamleler için tolerans
