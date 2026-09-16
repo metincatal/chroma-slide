@@ -202,6 +202,7 @@ export function getMpSettings(): MpSettings {
     if ((MP_ARENA_SIZES as readonly number[]).includes(p.arenaSize as number)) d.arenaSize = p.arenaSize as number;
     if ((MP_DURATIONS as readonly number[]).includes(p.durationSec as number)) d.durationSec = p.durationSec as number;
     if (typeof p.powerups === 'boolean') d.powerups = p.powerups;
+    if (typeof p.capture === 'boolean') d.capture = p.capture;
   } catch {}
   return d;
 }

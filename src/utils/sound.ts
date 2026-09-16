@@ -174,3 +174,28 @@ export function playPickup() {
     });
   } catch {}
 }
+
+// Alan cevirme sesi: dolgun yukselen akor
+export function playCapture() {
+  try {
+    const ctx = getCtx();
+    [392, 523, 659].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+      const t = ctx.currentTime + i * 0.05;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.13, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.35);
+
+      osc.start(t);
+      osc.stop(t + 0.35);
+    });
+  } catch {}
+}

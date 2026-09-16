@@ -2172,3 +2172,29 @@ html, body {
   line-height: 1.4;
   color: rgba(106, 96, 88, 0.75);
 }
+
+/* --- Alan cevirme bildirimi --- */
+.mp-capture-toast {
+  position: absolute;
+  left: 50%;
+  top: 106px;
+  transform: translate(-50%, -6px);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 15px;
+  border-radius: 20px;
+  background: rgba(106, 96, 88, 0.92);
+  color: #fffdf8;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+.mp-capture-toast-show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

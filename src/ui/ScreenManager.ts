@@ -999,6 +999,10 @@ export class ScreenManager {
           <span class="mp-setting-label">Kapsül</span>
           ${seg('mp-pow-seg', [{ v: '1', label: 'Açık' }, { v: '0', label: 'Kapalı' }], settings.powerups ? '1' : '0')}
         </div>
+        <div class="mp-setting-row">
+          <span class="mp-setting-label">Çevirme</span>
+          ${seg('mp-cap-seg', [{ v: '1', label: 'Açık' }, { v: '0', label: 'Kapalı' }], settings.capture ? '1' : '0')}
+        </div>
         <div class="mp-arena-info" id="mp-arena-info">${this.buildArenaInfo(settings)}</div>
         <button class="btn btn-mode-multi mp-full-btn" id="btn-mp-start" ${canStart ? '' : 'disabled'}>
           BAŞLAT
@@ -1075,6 +1079,7 @@ export class ScreenManager {
       bindSeg('mp-size-seg', (v) => { this.mpSettings.arenaSize   = parseInt(v, 10); });
       bindSeg('mp-dur-seg',  (v) => { this.mpSettings.durationSec = parseInt(v, 10); });
       bindSeg('mp-pow-seg',  (v) => { this.mpSettings.powerups    = v === '1'; });
+      bindSeg('mp-cap-seg',  (v) => { this.mpSettings.capture     = v === '1'; });
 
       this.overlay.querySelector('#btn-mp-start')!.addEventListener('click', () => {
         playClick(); this.callbacks.onMpStartGame?.(getLevel());
@@ -1124,6 +1129,28 @@ export class ScreenManager {
     }, 4200);
   }
 
+  // Alan çevrildiğinde kaç karo kazanıldığını göster
+  showCaptureToast(cells: number) {
+    const hud = this.overlay.querySelector('.mp-game-hud');
+    if (!hud) return;
+    const existing = hud.querySelector('.mp-capture-toast');
+    if (existing) existing.remove();
+
+    const el = document.createElement('div');
+    el.className = 'mp-capture-toast';
+    el.innerHTML = `
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9"/><polyline points="3 4 3 12 11 12"/></svg>
+      <span>Alan çevrildi +${cells}</span>
+    `;
+    hud.appendChild(el);
+
+    requestAnimationFrame(() => el.classList.add('mp-capture-toast-show'));
+    setTimeout(() => {
+      el.classList.remove('mp-capture-toast-show');
+      setTimeout(() => el.remove(), 250);
+    }, 1400);
+  }
+
   // Kapsül toplandığında oyun ekranında kısa bildirim
   showPowerToast(type: PowerType) {
     const hud = this.overlay.querySelector('.mp-game-hud');
@@ -1152,7 +1179,11 @@ export class ScreenManager {
 
   private buildArenaInfo(s: MpSettings): string {
     const size = MP_ARENA_SIZE_NAMES[s.arenaSize] ?? 'Orta';
-    return `${size} arena · ${s.durationSec} sn · kapsül ${s.powerups ? 'açık' : 'kapalı'} · boya çalmak serbest`;
+    const extras: string[] = [];
+    if (s.powerups) extras.push('kapsül');
+    if (s.capture)  extras.push('alan çevirme');
+    const tail = extras.length ? ` · ${extras.join(' + ')} açık` : ' · ek kural yok';
+    return `${size} arena · ${s.durationSec} sn${tail} · boya çalmak serbest`;
   }
 
   private showMpGame(

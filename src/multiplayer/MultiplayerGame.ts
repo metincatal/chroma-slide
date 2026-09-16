@@ -11,16 +11,18 @@ import {
   PowerType, POWER_TYPES, POWER_FIRST_SPAWN_MS, POWER_SPAWN_MIN_MS, POWER_SPAWN_MAX_MS,
   powerMaxOnBoard, POWER_LIFETIME_MS, POWER_REACHABLE_BIAS,
   POWER_BOMB_RADIUS, POWER_SHIELD_MS, POWER_FREEZE_MS, POWER_BRUSH_MS,
+  CAPTURE_MAX_REGION_RATIO, CAPTURE_MIN_REGION,
 } from '../utils/constants';
 import { getThemeById, ThemeConfig } from '../utils/themes';
 import {
   getSelectedTheme, getMpName, saveMpName, getMpColorIndex, saveMpColorIndex,
   getOrCreatePlayerId, getDevRoundDurationMs, getMpSettings, saveMpSettings,
 } from '../utils/storage';
-import { playSlide, playBump, playTick, playComplete, playPickup, resumeAudio } from '../utils/sound';
+import { playSlide, playBump, playTick, playComplete, playPickup, playCapture, resumeAudio } from '../utils/sound';
 import { db } from './FirebaseConfig';
 import { RoomManager, PlayerData, RoomInfo, RoomVisibility, RematchData, BoardSync, PlayerFx } from './RoomManager';
 import { RemotePlayer } from './RemotePlayer';
+import { findCapturedCells } from './capture';
 
 // ===== ARENA MODU =====
 // - Herkes ayrı köşeden başlar, boya çalmak serbest, süre dolunca en çok karo kazanır
@@ -959,6 +961,51 @@ export class MultiplayerGame {
     return [...out];
   }
 
+  // --- Alan çevreleme ---
+
+  // Topların durduğu hücreler: bu bölgeler kapatılamaz
+  private ballCells(): Set<number> {
+    const out = new Set<number>();
+    if (!this.level) return out;
+    const w = this.level.data.width;
+    if (this.myBall) out.add(this.myBall.y * w + this.myBall.x);
+    for (const rp of this.remotePlayers.values()) {
+      if (rp.connected) out.add(rp.ball.y * w + rp.ball.x);
+    }
+    return out;
+  }
+
+  // Bir koltuğun kapattığı alanları ele geçir. Ele geçen hücre sayısını döner.
+  private applyCapture(seat: number, pid: string): number {
+    if (!this.level || !this.settings.capture) return 0;
+
+    const maxRegion = Math.floor(this.level.totalPaintable * CAPTURE_MAX_REGION_RATIO);
+    if (maxRegion < CAPTURE_MIN_REGION) return 0;
+
+    const cells = findCapturedCells(
+      this.ownerSeat,
+      this.level.grid,
+      this.level.data.width,
+      this.level.data.height,
+      seat,
+      this.ballCells(),
+      maxRegion
+    );
+    if (cells.length < CAPTURE_MIN_REGION) return 0;
+
+    for (const idx of cells) this.setOwner(idx, seat, true);
+
+    // Kendi çevirdiğim alan: host onaylayana kadar yerel tahmin korunsun
+    if (pid === this.myPlayerId && this.myCurrentSeq > 0) {
+      const paths = this.getPending(pid);
+      paths.set(this.myCurrentSeq, [...(paths.get(this.myCurrentSeq) ?? []), ...cells]);
+      playCapture();
+      this.screenManager.showCaptureToast(cells.length);
+      this.renderer.triggerShake(0.5);
+    }
+    return cells.length;
+  }
+
   private colorOfSeat(seat: number): number {
     const pid = this.seatOrder[seat];
     return this.players[pid]?.colorIndex ?? seat;
@@ -1170,6 +1217,8 @@ export class MultiplayerGame {
       }
       this.collectCapsules(this.myPlayerId, mySeat, raw);
       if (!this.myBall.animating) {
+        // Kayma bitti: kapanan alan var mi
+        this.applyCapture(mySeat, this.myPlayerId);
         this.applied[this.myPlayerId] = this.myCurrentSeq;
         if (!this.deadlineReached && this.moveQueue.length > 0) {
           this.executeMove(this.moveQueue.shift()!);
@@ -1199,6 +1248,10 @@ export class MultiplayerGame {
           this.getPending(pid).set(seq, rp.ball.animPath.map((t) => t.y * w + t.x));
         }
       } else {
+        if (this.isHost && this.applied[pid] !== rp.currentSeq) {
+          // Uzak oyuncunun kaymasi bitti: cevreleme kararini host verir
+          this.applyCapture(seat, pid);
+        }
         this.applied[pid] = rp.currentSeq;
       }
     }

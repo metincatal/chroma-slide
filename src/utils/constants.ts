@@ -154,11 +154,12 @@ export interface MpSettings {
   arenaSize: number;    // 11 | 13 | 15
   durationSec: number;  // 45 | 60 | 90 | 120
   powerups: boolean;    // Güç kapsülleri
+  capture: boolean;     // Alan çevreleme
 }
 export const MP_ARENA_SIZES = [11, 13, 15] as const;
 export const MP_ARENA_SIZE_NAMES: Record<number, string> = { 11: 'Küçük', 13: 'Orta', 15: 'Büyük' };
 export const MP_DURATIONS = [45, 60, 90, 120] as const;
-export const MP_DEFAULT_SETTINGS: MpSettings = { arenaSize: 13, durationSec: 60, powerups: true };
+export const MP_DEFAULT_SETTINGS: MpSettings = { arenaSize: 13, durationSec: 60, powerups: true, capture: true };
 
 // Güç kapsülleri
 export type PowerType = 'bomb' | 'brush' | 'shield' | 'freeze';
@@ -182,3 +183,11 @@ export const POWER_BOMB_RADIUS    = 1;      // 3x3
 export const POWER_SHIELD_MS      = 6000;
 export const POWER_FREEZE_MS      = 2000;
 export const POWER_BRUSH_MS       = 5000;
+
+// Alan cevreleme: kapatilabilecek en buyuk bolge, boyanabilir alanin orani.
+// Yuksek oran kartopu etkisi yaratiyordu: one gecen oyuncu her hamlede daha da
+// aciliyor ve mac tek tarafli bitiyordu. Dusuk oran cevirmeyi taktik bir odul
+// olarak birakir, mac kazanan hamle olmaktan cikarir.
+export const CAPTURE_MAX_REGION_RATIO = 0.14;
+// Cevreleme kontrolu icin en kucuk bolge (tek karolik bosluklar gurultu yaratir)
+export const CAPTURE_MIN_REGION = 3;
